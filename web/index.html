@@ -65,8 +65,16 @@ section[hidden]{display:none}
 h2{font-family:var(--font-display);font-size:12px;letter-spacing:var(--track-wide);
   text-transform:uppercase;color:var(--c-ink-dim);margin:0 0 8px;font-weight:400}
 
-/* ── sticks ─────────────────────────────────────────────────────────── */
-.sticks{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+/* ── drive layout ───────────────────────────────────────────────────────
+   One structure, two orientations. Portrait stacks the sticks above the
+   controls; landscape puts them hard left and right so they land under your
+   thumbs while holding the phone, with the controls between them. */
+.drivegrid{
+  display:grid; gap:12px;
+  grid-template-columns:1fr 1fr;
+  grid-template-areas:"lstick rstick" "center center";
+}
+.lstick{grid-area:lstick} .rstick{grid-area:rstick} .center{grid-area:center}
 .stickwrap{display:flex;flex-direction:column;align-items:center;gap:6px}
 .sticklabel{font-size:11px;letter-spacing:var(--track);text-transform:uppercase;
   color:var(--c-ink-dim);display:flex;gap:8px;align-items:baseline}
@@ -123,6 +131,32 @@ input[type=range]{width:100%;accent-color:var(--c-accent);margin-top:8px}
 footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
   font-size:11px;letter-spacing:var(--track);color:var(--c-ink-faint);
   display:flex;gap:14px}
+
+/* ── landscape: thumbs-on-the-edges gamepad layout ──────────────────────
+   Chrome's URL bar eats vertical space in landscape, so everything above the
+   sticks gets compressed hard and main is allowed to fill what is left. */
+@media (orientation:landscape){
+  header{padding:6px 12px}
+  .mark{font-size:16px}
+  #kill{margin:6px 12px 0;padding:9px;font-size:18px}
+  nav{margin:6px 12px 0}
+  nav button{padding:6px;font-size:13px}
+  main{padding:10px 12px;overflow:hidden}
+  footer{display:none}
+
+  .drivegrid{
+    grid-template-columns:minmax(0,1fr) minmax(0,1.15fr) minmax(0,1fr);
+    grid-template-areas:"lstick center rstick";
+    align-items:center; height:100%;
+  }
+  .stick{max-width:none;width:min(100%,34vh);aspect-ratio:1}
+  .knob{width:56px;height:56px;margin:-28px 0 0 -28px}
+  .center{overflow-y:auto;max-height:100%}
+  .center h2{margin-top:10px}
+  .center .note{display:none}      /* explanatory text is portrait-only */
+  #softstop{margin-bottom:10px;padding:12px}
+  label.slider{margin-bottom:10px}
+}
 </style>
 </head>
 <body>
@@ -143,34 +177,34 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
 
 <main>
   <section id="pane-drive">
-    <h2>Manual</h2>
-    <div class="sticks">
-      <div class="stickwrap">
+    <div class="drivegrid">
+      <div class="stickwrap lstick">
         <div class="stick vert" id="stick-t"><div class="knob" id="knob-t"></div></div>
         <div class="sticklabel">Throttle <b id="val-t">0.00</b></div>
       </div>
-      <div class="stickwrap">
+
+      <div class="center">
+        <button class="btn" id="softstop">STOP</button>
+        <label class="slider">Max speed <span id="spdval">0.25</span>
+          <input type="range" id="spd" min="0.13" max="0.30" step="0.01" value="0.25">
+        </label>
+        <h2>Primitives</h2>
+        <div class="row">
+          <button class="btn" disabled>Circle</button>
+          <button class="btn" disabled>Figure-8</button>
+          <button class="btn" disabled>Follow</button>
+          <button class="btn" disabled>Wait</button>
+        </div>
+        <p class="note">Not implemented yet. These will publish to /behavior_cmd,
+          which the arbiter ranks below manual control, so a running primitive can
+          always be overridden by grabbing a stick.</p>
+      </div>
+
+      <div class="stickwrap rstick">
         <div class="stick horz" id="stick-s"><div class="knob" id="knob-s"></div></div>
         <div class="sticklabel">Steer <b id="val-s">0.00</b></div>
       </div>
     </div>
-
-    <button class="btn" id="softstop">STOP</button>
-
-    <label class="slider">Max speed <span id="spdval">0.25</span>
-      <input type="range" id="spd" min="0.13" max="0.30" step="0.01" value="0.25">
-    </label>
-
-    <h2>Primitives</h2>
-    <div class="row">
-      <button class="btn" disabled>Circle</button>
-      <button class="btn" disabled>Figure-8</button>
-      <button class="btn" disabled>Follow</button>
-      <button class="btn" disabled>Wait</button>
-    </div>
-    <p class="note">Primitives are not implemented yet. They will publish to
-      /behavior_cmd, which the arbiter already ranks below manual control, so a
-      running primitive can always be overridden by touching the pad above.</p>
   </section>
 
   <section id="pane-voice" hidden>
