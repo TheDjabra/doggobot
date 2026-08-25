@@ -65,18 +65,39 @@ section[hidden]{display:none}
 h2{font-family:var(--font-display);font-size:12px;letter-spacing:var(--track-wide);
   text-transform:uppercase;color:var(--c-ink-dim);margin:0 0 8px;font-weight:400}
 
-/* ── drive pad ──────────────────────────────────────────────────────── */
-.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px}
+/* ── sticks ─────────────────────────────────────────────────────────── */
+.sticks{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+.stickwrap{display:flex;flex-direction:column;align-items:center;gap:6px}
+.sticklabel{font-size:11px;letter-spacing:var(--track);text-transform:uppercase;
+  color:var(--c-ink-dim);display:flex;gap:8px;align-items:baseline}
+.sticklabel b{color:var(--c-accent);font-weight:400;font-variant-numeric:tabular-nums}
+.stick{
+  position:relative;width:100%;aspect-ratio:1;max-width:210px;
+  background:var(--c-bg-raise);border:var(--hairline);touch-action:none;
+  overflow:hidden;
+}
+.stick::before,.stick::after{content:"";position:absolute;background:rgb(216 214 207 / .10)}
+/* axis guide: vertical for throttle, horizontal for steer */
+.stick.vert::before{left:50%;top:8%;bottom:8%;width:1px;transform:translateX(-.5px)}
+.stick.horz::before{top:50%;left:8%;right:8%;height:1px;transform:translateY(-.5px)}
+.stick.vert::after,.stick.horz::after{left:50%;top:50%;width:5px;height:5px;
+  transform:translate(-50%,-50%);background:var(--c-ink-faint)}
+.stick.active{border-color:var(--c-accent)}
+.knob{
+  position:absolute;width:64px;height:64px;margin:-32px 0 0 -32px;
+  border:2px solid var(--c-accent);background:rgb(255 176 0 / .18);
+  pointer-events:none;
+}
+.stick.active .knob{background:var(--c-accent)}
+
 .btn{
-  padding:22px 8px;background:var(--c-bg-raise);border:var(--hairline);
+  padding:18px 8px;background:var(--c-bg-raise);border:var(--hairline);
   color:var(--c-ink);font-family:var(--font-display);font-size:16px;
   letter-spacing:var(--track);text-transform:uppercase;cursor:pointer;
 }
 .btn:active,.btn.held{background:var(--c-accent);color:#000;border-color:var(--c-accent)}
 .btn[disabled]{color:var(--c-ink-faint);border-color:rgb(216 214 207 / .06)}
-.pad .fwd{grid-column:2} .pad .left{grid-column:1;grid-row:2}
-.pad .stop{grid-column:2;grid-row:2} .pad .right{grid-column:3;grid-row:2}
-.pad .rev{grid-column:2;grid-row:3}
+#softstop{width:100%;margin-bottom:18px}
 
 .row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:18px}
 
@@ -123,15 +144,20 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
 <main>
   <section id="pane-drive">
     <h2>Manual</h2>
-    <div class="pad">
-      <button class="btn fwd"   data-t="1"  data-s="0">FWD</button>
-      <button class="btn left"  data-t="0"  data-s="-1">LEFT</button>
-      <button class="btn stop"  id="softstop">STOP</button>
-      <button class="btn right" data-t="0"  data-s="1">RIGHT</button>
-      <button class="btn rev"   data-t="-1" data-s="0">REV</button>
+    <div class="sticks">
+      <div class="stickwrap">
+        <div class="stick vert" id="stick-t"><div class="knob" id="knob-t"></div></div>
+        <div class="sticklabel">Throttle <b id="val-t">0.00</b></div>
+      </div>
+      <div class="stickwrap">
+        <div class="stick horz" id="stick-s"><div class="knob" id="knob-s"></div></div>
+        <div class="sticklabel">Steer <b id="val-s">0.00</b></div>
+      </div>
     </div>
 
-    <label class="slider">Speed <span id="spdval">0.25</span>
+    <button class="btn" id="softstop">STOP</button>
+
+    <label class="slider">Max speed <span id="spdval">0.25</span>
       <input type="range" id="spd" min="0.13" max="0.30" step="0.01" value="0.25">
     </label>
 
@@ -173,7 +199,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
   const SEND_HZ = 20;
 
   let ws = null, linked = false, estop = false, txCount = 0;
-  let throttleDir = 0, steerDir = 0, streaming = null;
+  let axT = 0, axS = 0, streaming = null;
 
   // ── transport ────────────────────────────────────────────────────────
   function connect() {
@@ -200,39 +226,85 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
   // The page repeats the current input 20x a second. It never sends "go until
   // further notice". If this phone dies, sleeps, or leaves wifi, the messages
   // simply stop and the arbiter releases the car on its own within 0.5 s.
+  // Stream unconditionally once anything is held, and keep streaming zeros for a
+  // moment after release so the arbiter sees an explicit stop rather than only a
+  // silence it has to time out on.
   function startStream() {
     if (streaming) return;
     streaming = setInterval(() => {
       const spd = parseFloat($('spd').value);
-      send({ type: 'teleop', throttle: throttleDir * spd, steering: steerDir * 0.8 });
+      send({ type: 'teleop', throttle: axT * spd, steering: axS * 0.8 });
     }, 1000 / SEND_HZ);
   }
   function stopStream() {
     clearInterval(streaming); streaming = null;
+    axT = 0; axS = 0; paintAxes();
     send({ type: 'teleop', throttle: 0, steering: 0 });
   }
+  function paintAxes() {
+    $('val-t').textContent = axT.toFixed(2);
+    $('val-s').textContent = axS.toFixed(2);
+  }
 
-  document.querySelectorAll('.pad .btn[data-t]').forEach(b => {
-    const down = e => {
+  // One stick, one axis. Left is throttle (vertical), right is steering
+  // (horizontal), the RC transmitter convention, so muscle memory transfers.
+  // Each pad captures its own pointer, so both thumbs work at once.
+  function makeStick(padId, knobId, axis) {
+    const pad = $(padId), knob = $(knobId);
+    let pid = null;
+
+    const place = (dx, dy) => { knob.style.left = `${50 + dx}%`; knob.style.top = `${50 + dy}%`; };
+    place(0, 0);
+
+    function track(e) {
+      const r = pad.getBoundingClientRect();
+      const halfW = r.width / 2, halfH = r.height / 2;
+      // Travel is limited so the knob never leaves the pad visually.
+      const travel = 0.72;
+      if (axis === 'v') {
+        let dy = (e.clientY - r.top - halfH) / halfH;
+        dy = Math.max(-travel, Math.min(travel, dy));
+        axT = -dy / travel;                    // screen +y is down, forward is up
+        place(0, dy * 50);
+      } else {
+        let dx = (e.clientX - r.left - halfW) / halfW;
+        dx = Math.max(-travel, Math.min(travel, dx));
+        axS = dx / travel;
+        place(dx * 50, 0);
+      }
+      paintAxes();
+    }
+
+    pad.addEventListener('pointerdown', e => {
       e.preventDefault();
-      b.classList.add('held');
-      throttleDir = parseFloat(b.dataset.t);
-      steerDir = parseFloat(b.dataset.s);
+      pid = e.pointerId;
+      pad.setPointerCapture(pid);
+      pad.classList.add('active');
+      track(e);
       startStream();
-    };
-    const up = e => {
-      e.preventDefault();
-      b.classList.remove('held');
-      throttleDir = 0; steerDir = 0;
-      stopStream();
-    };
-    b.addEventListener('pointerdown', down);
-    b.addEventListener('pointerup', up);
-    b.addEventListener('pointercancel', up);
-    b.addEventListener('pointerleave', up);
-  });
+    });
+    pad.addEventListener('pointermove', e => { if (e.pointerId === pid) track(e); });
 
-  $('softstop').addEventListener('click', () => { throttleDir = 0; steerDir = 0; stopStream(); });
+    const release = e => {
+      if (pid === null || e.pointerId !== pid) return;
+      pid = null;
+      pad.classList.remove('active');
+      // Spring back to centre. A car stick that stayed where you left it would
+      // be a runaway waiting to happen.
+      if (axis === 'v') axT = 0; else axS = 0;
+      place(0, 0);
+      paintAxes();
+      send({ type: 'teleop', throttle: axT * parseFloat($('spd').value), steering: axS * 0.8 });
+      if (axT === 0 && axS === 0) stopStream();
+    };
+    pad.addEventListener('pointerup', release);
+    pad.addEventListener('pointercancel', release);
+  }
+
+  makeStick('stick-t', 'knob-t', 'v');
+  makeStick('stick-s', 'knob-s', 'h');
+
+  $('softstop').addEventListener('click', stopStream);
 
   $('spd').addEventListener('input', () => $('spdval').textContent = parseFloat($('spd').value).toFixed(2));
 
@@ -241,7 +313,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     estop = !estop;
     $('kill').classList.toggle('engaged', estop);
     $('kill').textContent = estop ? 'KILLED - TAP TO CLEAR' : 'KILL';
-    throttleDir = 0; steerDir = 0; stopStream();
+    stopStream();
     send({ type: 'estop', engaged: estop });
   });
 
@@ -253,7 +325,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     $('pane-drive').hidden = !drive;
     $('pane-voice').hidden = drive;
     $('mode').textContent = drive ? 'DRIVE' : 'VOICE';
-    if (!drive) { throttleDir = 0; steerDir = 0; stopStream(); }
+    if (!drive) stopStream();
   }
   $('tab-drive').addEventListener('click', () => tab('drive'));
   $('tab-voice').addEventListener('click', () => tab('voice'));
