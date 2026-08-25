@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#060806">
+<title>DOGGOBOT</title>
+<style>
+/* Design tokens lifted from the AI TURRET HUD (web/src/theme/tokens.css) so the
+   two projects read as one system. Square corners, bone-white on near-black,
+   amber accent, condensed display face over mono data. */
+:root{
+  --c-bg:#060806; --c-bg-raise:#0c0e0c; --c-ink:#dcdad2; --c-ink-dim:#a7a499;
+  --c-ink-faint:#46453d; --c-accent:#ffb000; --c-alert:#ff3b30; --c-ok:#6abf59;
+  --c-estimate:#57c8d8;
+  --hairline:1px solid rgb(216 214 207 / .22);
+  --hairline-dim:1px solid rgb(216 214 207 / .10);
+  --font-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  --font-display:"Saira Condensed","Arial Narrow",system-ui,sans-serif;
+  --track:.08em; --track-wide:.22em; --pad:10px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;overscroll-behavior:none;touch-action:manipulation}
+body{
+  background:var(--c-bg); color:var(--c-ink); font-family:var(--font-mono);
+  display:flex; flex-direction:column; user-select:none;
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* ── header ─────────────────────────────────────────────────────────── */
+header{
+  display:flex; align-items:center; gap:12px; padding:var(--pad) 14px;
+  border-bottom:var(--hairline); background:var(--c-bg-raise); flex:0 0 auto;
+}
+.mark{font-family:var(--font-display);font-size:20px;letter-spacing:var(--track-wide);
+  text-transform:uppercase;color:var(--c-ink)}
+.mark b{color:var(--c-accent);font-weight:700}
+.spacer{flex:1}
+.chip{font-size:11px;letter-spacing:var(--track);text-transform:uppercase;
+  color:var(--c-ink-dim);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;background:var(--c-ink-faint);display:inline-block}
+.dot.live{background:var(--c-ok)}
+.dot.bad{background:var(--c-alert)}
+
+/* ── kill switch: always visible, never behind a tab ────────────────── */
+#kill{
+  flex:0 0 auto; margin:10px 14px 0; padding:16px; border:2px solid var(--c-alert);
+  background:rgb(255 59 48 / .12); color:var(--c-alert); font-family:var(--font-display);
+  font-size:26px; letter-spacing:var(--track-wide); text-transform:uppercase;
+  text-align:center; cursor:pointer;
+}
+#kill.engaged{background:var(--c-alert);color:#000}
+
+/* ── tabs ───────────────────────────────────────────────────────────── */
+nav{display:flex;gap:0;margin:12px 14px 0;border:var(--hairline-dim);flex:0 0 auto}
+nav button{
+  flex:1;padding:11px;background:transparent;border:0;color:var(--c-ink-dim);
+  font-family:var(--font-display);font-size:15px;letter-spacing:var(--track-wide);
+  text-transform:uppercase;cursor:pointer;border-bottom:2px solid transparent;
+}
+nav button[aria-selected="true"]{color:var(--c-accent);border-bottom-color:var(--c-accent)}
+
+main{flex:1;overflow-y:auto;padding:14px}
+section[hidden]{display:none}
+h2{font-family:var(--font-display);font-size:12px;letter-spacing:var(--track-wide);
+  text-transform:uppercase;color:var(--c-ink-dim);margin:0 0 8px;font-weight:400}
+
+/* ── drive pad ──────────────────────────────────────────────────────── */
+.pad{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:18px}
+.btn{
+  padding:22px 8px;background:var(--c-bg-raise);border:var(--hairline);
+  color:var(--c-ink);font-family:var(--font-display);font-size:16px;
+  letter-spacing:var(--track);text-transform:uppercase;cursor:pointer;
+}
+.btn:active,.btn.held{background:var(--c-accent);color:#000;border-color:var(--c-accent)}
+.btn[disabled]{color:var(--c-ink-faint);border-color:rgb(216 214 207 / .06)}
+.pad .fwd{grid-column:2} .pad .left{grid-column:1;grid-row:2}
+.pad .stop{grid-column:2;grid-row:2} .pad .right{grid-column:3;grid-row:2}
+.pad .rev{grid-column:2;grid-row:3}
+
+.row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:18px}
+
+label.slider{display:block;font-size:11px;letter-spacing:var(--track);
+  text-transform:uppercase;color:var(--c-ink-dim);margin-bottom:18px}
+input[type=range]{width:100%;accent-color:var(--c-accent);margin-top:8px}
+
+/* ── push to talk ───────────────────────────────────────────────────── */
+#ptt{
+  width:100%;padding:44px 8px;background:var(--c-bg-raise);border:2px solid var(--c-accent);
+  color:var(--c-accent);font-family:var(--font-display);font-size:22px;
+  letter-spacing:var(--track-wide);text-transform:uppercase;cursor:pointer;
+}
+#ptt.held{background:var(--c-accent);color:#000}
+.readout{
+  border:var(--hairline-dim);background:var(--c-bg-raise);padding:12px;
+  min-height:74px;font-size:13px;color:var(--c-ink-dim);margin-top:14px;
+  white-space:pre-wrap;word-break:break-word;
+}
+.note{font-size:11px;line-height:1.6;color:var(--c-ink-faint);margin-top:14px;
+  letter-spacing:var(--track)}
+
+footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
+  font-size:11px;letter-spacing:var(--track);color:var(--c-ink-faint);
+  display:flex;gap:14px}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="mark">DOGGO<b>BOT</b></span>
+  <span class="spacer"></span>
+  <span class="chip"><i class="dot" id="linkdot"></i><span id="link">connecting</span></span>
+  <span class="chip" id="rtt">-- ms</span>
+</header>
+
+<button id="kill">KILL</button>
+
+<nav>
+  <button id="tab-drive" aria-selected="true">Drive</button>
+  <button id="tab-voice" aria-selected="false">Voice</button>
+</nav>
+
+<main>
+  <section id="pane-drive">
+    <h2>Manual</h2>
+    <div class="pad">
+      <button class="btn fwd"   data-t="1"  data-s="0">FWD</button>
+      <button class="btn left"  data-t="0"  data-s="-1">LEFT</button>
+      <button class="btn stop"  id="softstop">STOP</button>
+      <button class="btn right" data-t="0"  data-s="1">RIGHT</button>
+      <button class="btn rev"   data-t="-1" data-s="0">REV</button>
+    </div>
+
+    <label class="slider">Speed <span id="spdval">0.25</span>
+      <input type="range" id="spd" min="0.13" max="0.30" step="0.01" value="0.25">
+    </label>
+
+    <h2>Primitives</h2>
+    <div class="row">
+      <button class="btn" disabled>Circle</button>
+      <button class="btn" disabled>Figure-8</button>
+      <button class="btn" disabled>Follow</button>
+      <button class="btn" disabled>Wait</button>
+    </div>
+    <p class="note">Primitives are not implemented yet. They will publish to
+      /behavior_cmd, which the arbiter already ranks below manual control, so a
+      running primitive can always be overridden by touching the pad above.</p>
+  </section>
+
+  <section id="pane-voice" hidden>
+    <h2>Push to talk</h2>
+    <button id="ptt">HOLD TO TALK</button>
+    <div class="readout" id="transcript">no speech captured yet</div>
+    <p class="note">
+      Skeleton only. The button, the transport, and the /voice_cmd publisher all
+      work; speech recognition is not attached yet. Hold-to-talk is deliberate,
+      not a placeholder: continuous listening on Android Chrome duplicates
+      results and restarts unpredictably, and a held button is also a safety gate
+      against the car acting on overheard speech.
+    </p>
+  </section>
+</main>
+
+<footer>
+  <span id="mode">DRIVE</span>
+  <span class="spacer"></span>
+  <span id="sent">tx 0</span>
+</footer>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const SEND_HZ = 20;
+
+  let ws = null, linked = false, estop = false, txCount = 0;
+  let throttleDir = 0, steerDir = 0, streaming = null;
+
+  // ── transport ────────────────────────────────────────────────────────
+  function connect() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.onopen = () => { linked = true; paint(); };
+    ws.onclose = () => { linked = false; paint(); setTimeout(connect, 1000); };
+    ws.onerror = () => { linked = false; paint(); };
+    ws.onmessage = e => {
+      const m = JSON.parse(e.data);
+      if (m.type === 'pong') $('rtt').textContent = `${Math.round(performance.now() - m.t)} ms`;
+    };
+  }
+  function send(o) {
+    if (ws && ws.readyState === 1) { ws.send(JSON.stringify(o)); txCount++; $('sent').textContent = `tx ${txCount}`; }
+  }
+  function paint() {
+    $('linkdot').className = 'dot ' + (linked ? 'live' : 'bad');
+    $('link').textContent = linked ? 'linked' : 'no link';
+  }
+  setInterval(() => send({ type: 'ping', t: performance.now() }), 1000);
+
+  // ── teleop is a STREAM ───────────────────────────────────────────────
+  // The page repeats the current input 20x a second. It never sends "go until
+  // further notice". If this phone dies, sleeps, or leaves wifi, the messages
+  // simply stop and the arbiter releases the car on its own within 0.5 s.
+  function startStream() {
+    if (streaming) return;
+    streaming = setInterval(() => {
+      const spd = parseFloat($('spd').value);
+      send({ type: 'teleop', throttle: throttleDir * spd, steering: steerDir * 0.8 });
+    }, 1000 / SEND_HZ);
+  }
+  function stopStream() {
+    clearInterval(streaming); streaming = null;
+    send({ type: 'teleop', throttle: 0, steering: 0 });
+  }
+
+  document.querySelectorAll('.pad .btn[data-t]').forEach(b => {
+    const down = e => {
+      e.preventDefault();
+      b.classList.add('held');
+      throttleDir = parseFloat(b.dataset.t);
+      steerDir = parseFloat(b.dataset.s);
+      startStream();
+    };
+    const up = e => {
+      e.preventDefault();
+      b.classList.remove('held');
+      throttleDir = 0; steerDir = 0;
+      stopStream();
+    };
+    b.addEventListener('pointerdown', down);
+    b.addEventListener('pointerup', up);
+    b.addEventListener('pointercancel', up);
+    b.addEventListener('pointerleave', up);
+  });
+
+  $('softstop').addEventListener('click', () => { throttleDir = 0; steerDir = 0; stopStream(); });
+
+  $('spd').addEventListener('input', () => $('spdval').textContent = parseFloat($('spd').value).toFixed(2));
+
+  // ── kill switch: one frame, no dependencies ──────────────────────────
+  $('kill').addEventListener('click', () => {
+    estop = !estop;
+    $('kill').classList.toggle('engaged', estop);
+    $('kill').textContent = estop ? 'KILLED - TAP TO CLEAR' : 'KILL';
+    throttleDir = 0; steerDir = 0; stopStream();
+    send({ type: 'estop', engaged: estop });
+  });
+
+  // ── tabs ─────────────────────────────────────────────────────────────
+  function tab(which) {
+    const drive = which === 'drive';
+    $('tab-drive').setAttribute('aria-selected', drive);
+    $('tab-voice').setAttribute('aria-selected', !drive);
+    $('pane-drive').hidden = !drive;
+    $('pane-voice').hidden = drive;
+    $('mode').textContent = drive ? 'DRIVE' : 'VOICE';
+    if (!drive) { throttleDir = 0; steerDir = 0; stopStream(); }
+  }
+  $('tab-drive').addEventListener('click', () => tab('drive'));
+  $('tab-voice').addEventListener('click', () => tab('voice'));
+
+  // ── push to talk (skeleton) ──────────────────────────────────────────
+  const ptt = $('ptt');
+  ptt.addEventListener('pointerdown', e => {
+    e.preventDefault(); ptt.classList.add('held');
+    $('transcript').textContent = 'listening... (recognition not attached yet)';
+  });
+  const release = e => {
+    e.preventDefault(); ptt.classList.remove('held');
+    $('transcript').textContent = 'released. nothing recognised yet - this is where the transcript will appear.';
+    send({ type: 'voice', text: '', source: 'ptt-skeleton' });
+  };
+  ptt.addEventListener('pointerup', release);
+  ptt.addEventListener('pointercancel', release);
+
+  // Screen sleeping mid-drive would freeze the stream. Ask to stay awake.
+  if ('wakeLock' in navigator) {
+    navigator.wakeLock.request('screen').catch(() => {});
+  }
+
+  connect(); paint();
+})();
+</script>
+</body>
+</html>

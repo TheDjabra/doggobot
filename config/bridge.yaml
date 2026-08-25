@@ -1,0 +1,12 @@
+voice_bridge_node:
+  ros__parameters:
+    port: 8080
+
+    # Manual driving ceiling, below the arbiter's 0.382, because a thumb on a
+    # phone deserves less authority than a tuned autonomous behaviour.
+    max_teleop_throttle: 0.30
+
+    # Measured motor deadband (tools/vesc_probe.py). The bridge steps small
+    # throttle requests up to this, so a low speed-slider setting still moves the
+    # car instead of feeling like a dead button.
+    throttle_floor: 0.13
