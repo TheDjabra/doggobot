@@ -1,0 +1,15 @@
+arbiter_node:
+  ros__parameters:
+    publish_hz: 20.0
+
+    # A source that stops publishing stops winning. Teleop and safety are tight
+    # because they are streamed; behaviour is looser because a primitive may
+    # legitimately think between commands.
+    safety_timeout_s: 0.5
+    teleop_timeout_s: 0.5
+    behavior_timeout_s: 1.0
+
+    # Ceilings only, matching the car's ros_racer_calibration.yaml. The arbiter
+    # will not let anything command more than this, whatever it asks for.
+    max_steering: 0.8
+    max_throttle: 0.382

@@ -24,8 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # nodes are registered here as they are built, e.g.
-            # 'arbiter_node = doggobot.arbiter_node:main',
+            'arbiter_node = doggobot.arbiter_node:main',
         ],
     },
 )
