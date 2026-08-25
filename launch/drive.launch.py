@@ -5,6 +5,11 @@ ros_racer_calibration.yaml) and our arbiter, and nothing else. With this
 running, a single `ros2 topic pub` to /behavior_cmd or /teleop_cmd drives the
 car.
 
+Before launching, always stop any previous stack with tools/stop_stack.sh and
+confirm `ros2 topic info /cmd_vel` reports exactly one publisher. A leftover
+arbiter from a previous run publishes zeros at 20 Hz and will silently corrupt
+every test you run afterwards.
+
 NOT compatible with the class `all_nodes.launch.py`: that starts
 lane_guidance_node, which also publishes /cmd_vel. Two publishers on that topic
 is exactly the race the arbiter exists to prevent. Run one or the other.
