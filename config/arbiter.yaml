@@ -14,11 +14,15 @@ arbiter_node:
     # max_steering is in the same [-1, 1] space the VESC node maps to servo
     # [0, 1], so 0.8 matches the car's calibrated steering limit exactly.
     #
-    # max_throttle is NOT the calibration file's max_throttle despite the name.
-    # vesc_twist_node already caps itself at 0.382 * 20000 = 7640 ERPM, and
-    # Twist linear.x is a fraction of THAT. So this is a second, project-level
-    # speed limit. 0.15 is roughly 1150 ERPM: clearly visible on blocks, slow
-    # enough to walk alongside. Raise it deliberately after measuring on the
-    # ground.
+    # Throttle. vesc_twist_node caps itself at 0.382 * 20000 = 7640 ERPM and
+    # then commands rpm = 7640 * linear.x, so linear.x is a fraction of that.
+    # The class's own lane_guidance_node publishes 0.363 to 0.382, i.e. the car
+    # is calibrated to drive at roughly 2800 ERPM. 0.382 matches that ceiling.
+    #
+    # throttle_floor is MEASURED, not guessed (tools/vesc_probe.py, 2026-08-25):
+    # 500 ERPM does not start the motor, 1000 does. So below linear.x ~= 0.13
+    # the car does not move at all. Behaviours must step over this floor rather
+    # than ramping smoothly to zero.
     max_steering: 0.8
-    max_throttle: 0.15
+    max_throttle: 0.382
+    throttle_floor: 0.13

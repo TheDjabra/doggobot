@@ -81,14 +81,23 @@ class ArbiterNode(Node):
         # FRACTION of that already-capped range, in [-1, 1], and our max_throttle
         # is a second, project-level speed limit on top of the car's.
         #
-        # Default is deliberately slow. Raise it once speed has been measured on
-        # the ground, not before.
+        # MEASURED on the bench 2026-08-25 with tools/vesc_probe.py: the motor
+        # does not start at 500 ERPM and does start at 1000, so the practical
+        # floor is linear.x ~= 0.13. The class's own lane_guidance_node drives
+        # between 0.363 and 0.382 (2773 to 2918 ERPM), which is why 0.382 is the
+        # right ceiling: it matches what the car is calibrated to do.
+        #
+        # A behaviour that wants to go slowly cannot simply scale throttle toward
+        # zero. Below the floor the car does not creep, it stops.
         self.declare_parameter('max_steering', 0.8)
-        self.declare_parameter('max_throttle', 0.15)
+        self.declare_parameter('max_throttle', 0.382)
+        # Informational, published in status so behaviours can respect it.
+        self.declare_parameter('throttle_floor', 0.13)
 
         self.publish_hz = self.get_parameter('publish_hz').value
         self.max_steering = self.get_parameter('max_steering').value
         self.max_throttle = self.get_parameter('max_throttle').value
+        self.throttle_floor = self.get_parameter('throttle_floor').value
 
         # Highest priority first. Order in this list IS the priority order.
         self.sources = [
@@ -116,7 +125,8 @@ class ArbiterNode(Node):
 
         self.get_logger().info(
             f'arbiter up: {self.publish_hz:.0f} Hz, '
-            f'steering +/-{self.max_steering}, throttle +/-{self.max_throttle}')
+            f'steering +/-{self.max_steering}, throttle +/-{self.max_throttle}, '
+            f'measured floor {self.throttle_floor}')
 
     # -- inputs ---------------------------------------------------------------
 

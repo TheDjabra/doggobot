@@ -77,7 +77,7 @@ echo
 echo "6. output clamp: ask for full scale, expect the ceiling"
 kill $B 2>/dev/null; sleep 1
 B2=$(pub_bg /behavior_cmd "{linear: {x: 1.0}, angular: {z: 5.0}}"); sleep 2
-check "throttle clamped to 0.150" "0.150," "$(sample)"
+check "throttle clamped to 0.382" "0.382," "$(sample)"
 check "steering clamped to 0.8" ",0.800" "$(sample)"
 
 echo
@@ -88,7 +88,7 @@ check "e-stop zeroes output" "0.000,0.000" "$(sample)"
 echo
 echo "8. e-stop clears and control returns"
 ros2 topic pub -1 /estop std_msgs/msg/Bool "{data: false}" >/dev/null 2>&1; sleep 2
-check "control restored after clear" "0.150,0.800" "$(sample)"
+check "control restored after clear" "0.382,0.800" "$(sample)"
 
 echo
 echo "9. all sources stop -> back to zero"
