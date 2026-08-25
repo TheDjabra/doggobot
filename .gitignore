@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+install/
+log/
+.venv/
+*.blob
+*.pt
+*.onnx
+*.mp4
+*.bag
+.env
+secrets.json
