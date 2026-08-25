@@ -146,3 +146,61 @@ will not protect this pack. Flagged for checking in VESC Tool.
 The drive path is therefore proven end to end: `ros2 topic pub` -> arbiter -> `/cmd_vel` ->
 `vesc_twist_node` -> VESC -> wheels, with both safety paths validated on real hardware before
 any autonomous behaviour exists.
+
+---
+
+## 2026-08-25 (lab, later) - Phone control surface
+
+**Tailscale on the car.** Joined the tailnet as `doggobot`
+(`doggobot.tail502ca5.ts.net`). Two reasons. Campus wifi uses client isolation, so mDNS stopped
+resolving the car entirely the moment we left the home network. And `tailscale cert` issues a
+real publicly-trusted certificate for that hostname, which is a hard prerequisite for the voice
+work: the Web Speech API refuses to give a page a microphone on an insecure origin. Verified by
+issuing a cert, not assumed.
+
+**`voice_bridge_node`.** FastAPI, a WebSocket, and `rclpy` in a single process. rclpy spins in a
+background thread and the socket handler publishes into it.
+
+    button / stick  ->  /teleop_cmd   (Twist)
+    kill switch     ->  /estop        (Bool)
+    speech          ->  /voice_cmd    (String JSON)   [transport live, recognition not attached]
+
+One process rather than rosbridge because a server has to exist anyway to serve the page over
+HTTPS and later to proxy the LLM call so the key never reaches the browser. Given that,
+rosbridge would add a second server and port for nothing.
+
+**Design decisions in the page itself**, each for a reason worth keeping:
+
+- **Teleop is a stream, not a command.** The page repeats the current stick position 20x a
+  second. It never sends "drive until told otherwise". A phone that sleeps, locks, or leaves
+  wifi simply stops transmitting and the arbiter releases the car within 0.5 s. This is the
+  deadman already validated on hardware, reached from the phone side.
+- **The kill switch is one WebSocket frame straight to `/estop`.** It depends on no model, no
+  recognition, and no network hop beyond the bridge.
+- **Sticks spring back to centre on release**, and each pad uses pointer capture so dragging a
+  thumb off the pad still tracks rather than sticking at its last value. A car stick that held
+  its position would be a runaway waiting to happen.
+- **Speed slider starts at 0.13**, the measured motor floor, and the bridge steps smaller
+  requests up to it, so a low setting still moves the car instead of feeling like a dead button.
+- **Last client out stops teleop**, borrowed from the turret app's rule of disarming the payload
+  when the last viewer disconnects.
+- **Two-stick RC transmitter layout**: left vertical is throttle, right horizontal is steering,
+  so muscle memory transfers. Each pad captures its own pointer, so both thumbs work at once.
+  Landscape puts them at the screen edges with the controls between.
+- **Push-to-talk, not continuous listening**, even in the skeleton. Continuous recognition on
+  Android Chrome duplicates results and restarts unpredictably, and a held button doubles as a
+  safety gate against the car acting on overheard speech.
+
+Styling reuses the AI TURRET HUD's design tokens directly (square corners, bone white on
+near-black, amber accent, condensed display over mono data) so the two projects read as one
+system. Written as a single self-contained page rather than a React build, deliberately: a Vite
+toolchain would have consumed the whole available window for no functional gain yet.
+
+**Bug found and fixed:** `self.clients` collides with `rclpy.node.Node.clients`, a read-only
+property listing a node's service clients. The node died at construction with
+`property 'clients' has no setter`. Renamed to `client_count`.
+
+**Measured**: 35 ms round trip from phone to car and back, over the Tailscale relay, on campus
+wifi. That is comfortably inside what a 20 Hz stick stream needs, and much better than feared.
+Worth re-measuring at Warren Mall on the phone hotspot, where it should improve further because
+Tailscale can then connect peer-to-peer over the local network instead of relaying.
