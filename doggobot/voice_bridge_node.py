@@ -70,7 +70,9 @@ class BridgeNode(Node):
         self.estop_pub = self.create_publisher(Bool, 'estop', 10)
         self.voice_pub = self.create_publisher(String, 'voice_cmd', 10)
 
-        self.clients = 0
+        # NOT `self.clients`: rclpy.node.Node already defines `clients` as a
+        # read-only property listing this node's service clients.
+        self.client_count = 0
         self.get_logger().info(
             f'bridge up on :{self.port}, teleop ceiling '
             f'{self.max_teleop_throttle}, floor {self.throttle_floor}')
@@ -107,13 +109,13 @@ def build_app(node: BridgeNode) -> FastAPI:
 
     @app.get('/healthz')
     async def healthz():
-        return {'ok': True, 'clients': node.clients}
+        return {'ok': True, 'clients': node.client_count}
 
     @app.websocket('/ws')
     async def ws(sock: WebSocket):
         await sock.accept()
-        node.clients += 1
-        node.get_logger().info(f'client connected ({node.clients} total)')
+        node.client_count += 1
+        node.get_logger().info(f'client connected ({node.client_count} total)')
         try:
             while True:
                 msg = json.loads(await sock.receive_text())
@@ -138,9 +140,9 @@ def build_app(node: BridgeNode) -> FastAPI:
         except Exception as e:                       # noqa: BLE001
             node.get_logger().warn(f'websocket error: {e}')
         finally:
-            node.clients -= 1
-            node.get_logger().info(f'client gone ({node.clients} left)')
-            if node.clients <= 0:
+            node.client_count -= 1
+            node.get_logger().info(f'client gone ({node.client_count} left)')
+            if node.client_count <= 0:
                 # Last client out: stop asserting teleop. The arbiter's staleness
                 # timeout does the rest.
                 node.publish_teleop(0.0, 0.0)
