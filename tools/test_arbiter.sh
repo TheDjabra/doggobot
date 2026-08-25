@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 # Exercise arbiter_node's decision logic with no actuator attached.
 #
-# Run INSIDE the Doggobot container, in an interactive shell so that
-# ROS_DOMAIN_ID and source_ros2 are set:
-#   docker exec -it Doggobot bash -ic /home/projects/ros2_ws/src/doggobot/tools/test_arbiter.sh
+# Run INSIDE the Doggobot container:
+#   docker exec -it Doggobot bash /home/projects/ros2_ws/src/doggobot/tools/test_arbiter.sh
 #
 # Nothing here starts the VESC node, so the car cannot move. This checks the
 # priority order, the staleness timeouts, the e-stop, and the output clamp.
 
-set -u
-source_ros2 >/dev/null 2>&1 || true
+source "$(dirname "$0")/env.sh" >/dev/null 2>&1
 
 pass=0; fail=0
 check() {  # check <label> <expected-substring> <actual>
