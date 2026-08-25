@@ -9,8 +9,41 @@
 | Compute | Raspberry Pi 5, 16 GB, Raspberry Pi OS Bookworm (64-bit) |
 | Motor control | VESC over USB CDC-ACM, `/dev/ttyACM*` |
 | Camera | Luxonis OAK-D Lite, Myriad X accelerator, stereo baseline 7.5 cm |
-| LiDAR | LD06 |
-| Battery | 3S Li-ion |
+| LiDAR | LD06 (not fitted as of 2026-08-25) |
+| Battery | **4S**, measured 15.1 V at the VESC |
+
+### Measured drive characteristics (bench, 2026-08-25)
+
+Read directly off the VESC with `tools/vesc_probe.py`, motor idle and under command.
+
+| Quantity | Value |
+|---|---|
+| Firmware | 6.6.55 |
+| Input voltage | 15.1 V (a 4S pack) |
+| FET temperature | 26.6 C idle |
+| Fault code | none, at idle and under load |
+| Motor start threshold | **between 500 and 1000 ERPM.** 500 does not turn the motor, 1000 does |
+
+How that maps to what you publish: `vesc_twist_node` computes
+`max_rpm = max_throttle * max_rpm = 0.382 * 20000 = 7640` ERPM, then commands
+`rpm = 7640 * linear.x`. So:
+
+| `linear.x` | ERPM | Moves? |
+|---|---|---|
+| 0.05 | 382 | no, below the floor |
+| 0.10 | 764 | no, below the floor |
+| **0.13** | ~1000 | **the practical floor** |
+| 0.20 | 1528 | yes |
+| 0.363 to 0.382 | 2773 to 2918 | the class lap speed, what `lane_guidance_node` publishes |
+
+**The consequence for control design**: throttle has a deadband, so a behavior slowing toward
+a target cannot ramp smoothly to zero. Below roughly 0.13 the car does not creep, it stops.
+Any follow or approach loop has to treat this as a floor and step over it.
+
+**Battery note.** The pack is 4S and every team received the same. The vault's record of the
+VESC motor wizard says it was configured with a **3S** Li-ion battery profile. If that is
+still the case, the low-voltage cutoff is set for 3S and will not protect a 4S pack. Worth
+confirming in VESC Tool; nothing is wrong at present (no faults, normal temperatures).
 
 ## Pan axis
 

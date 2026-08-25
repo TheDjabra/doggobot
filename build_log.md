@@ -106,3 +106,43 @@ This is worth remembering as a class of bug rather than an incident: **the sympt
 exactly like a hardware fault** (servo buzzing, nothing moving), and nothing in either node's
 logs was wrong. `ros2 topic info` was the tool that found it in seconds. It is also a direct
 vindication of the single-publisher rule the whole architecture is built on.
+
+**Silent motor, and the measurement that explained it.** First throttle commands (0.05, 0.10)
+produced no wheel movement. Rather than guess, `tools/vesc_probe.py` was written to talk to the
+VESC directly with ROS out of the picture: read telemetry, then step RPM and read back what the
+motor actually did. Result: firmware 6.6.55, 15.1 V input, no fault codes, and a motor start
+threshold **between 500 and 1000 ERPM**. The failing commands were 382 and 764 ERPM. Not a
+fault, a deadband.
+
+That also exposed a mistake made earlier the same session. The arbiter's throttle ceiling had
+been lowered to 0.15 on the reasoning that `vesc_twist_node` already caps at 0.382. It does, but
+the class's own `lane_guidance_node` publishes `linear.x` between 0.363 and 0.382, so 0.15 was
+*below the speed the car is calibrated to drive at*. Ceiling restored to 0.382, with the
+measured floor of 0.13 recorded as a parameter and published in the arbiter's status so
+behaviours can respect it.
+
+**A second two-publisher incident, same root cause, different mechanism.** A cleanup command
+`pkill -f arbiter_node` matched the very shell that was running it, so the shell killed itself
+partway through and the remaining kills never executed. A subsequent launch then created a
+second stack. Fixed with `tools/stop_stack.sh`, which matches installed binary paths using
+bracket patterns (`arbiter_nod[e]`) that cannot match its own command line, and verifies nothing
+survived. The lesson generalises: `ros2 topic info /cmd_vel` reporting a publisher count other
+than 1 is now the first thing checked before any bench test, and both test harnesses refuse to
+run otherwise.
+
+**Battery.** Measured 15.1 V, so a **4S** pack, which is what every team received. The recorded
+VESC motor-wizard configuration says 3S Li-ion. If that is still set, the low-voltage cutoff
+will not protect this pack. Flagged for checking in VESC Tool.
+
+**Bench results, all with the car on a stand and exactly one publisher on /cmd_vel:**
+
+- Steering: full right, center, full left, center. Polarity correct, right command gives right.
+- Throttle: 0.20 and 0.37 both spin at visibly different speeds. Reverse works at -0.25 and
+  -0.37, no brake-then-reverse sequence needed.
+- **Deadman**: teleop publisher killed mid-drive with no stop command sent, car stopped itself.
+- **E-stop**: engaged while a 0.25 throttle command was still streaming, output zeroed; cleared,
+  control resumed with nothing republished.
+
+The drive path is therefore proven end to end: `ros2 topic pub` -> arbiter -> `/cmd_vel` ->
+`vesc_twist_node` -> VESC -> wheels, with both safety paths validated on real hardware before
+any autonomous behaviour exists.
