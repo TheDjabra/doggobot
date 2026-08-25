@@ -72,11 +72,19 @@ class ArbiterNode(Node):
         self.declare_parameter('safety_timeout_s', 0.5)
         self.declare_parameter('teleop_timeout_s', 0.5)
         self.declare_parameter('behavior_timeout_s', 1.0)
-        # Defaults match the car's ros_racer_calibration.yaml. The arbiter only
-        # enforces the ceiling; a behaviour still has to respect the car's
-        # minimum-throttle deadband to actually move.
+        # Ceilings on what any source is allowed to ask for.
+        #
+        # Units, because they are NOT the same as the calibration file's despite
+        # sharing a name. vesc_twist_node reads ros_racer_calibration.yaml and
+        # computes  max_rpm = max_throttle * max_rpm = 0.382 * 20000 = 7640 ERPM,
+        # then commands  rpm = 7640 * msg.linear.x.  So Twist linear.x is a
+        # FRACTION of that already-capped range, in [-1, 1], and our max_throttle
+        # is a second, project-level speed limit on top of the car's.
+        #
+        # Default is deliberately slow. Raise it once speed has been measured on
+        # the ground, not before.
         self.declare_parameter('max_steering', 0.8)
-        self.declare_parameter('max_throttle', 0.382)
+        self.declare_parameter('max_throttle', 0.15)
 
         self.publish_hz = self.get_parameter('publish_hz').value
         self.max_steering = self.get_parameter('max_steering').value

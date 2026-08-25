@@ -9,7 +9,16 @@ arbiter_node:
     teleop_timeout_s: 0.5
     behavior_timeout_s: 1.0
 
-    # Ceilings only, matching the car's ros_racer_calibration.yaml. The arbiter
-    # will not let anything command more than this, whatever it asks for.
+    # Ceilings. Nothing may command more than this, whatever it asks for.
+    #
+    # max_steering is in the same [-1, 1] space the VESC node maps to servo
+    # [0, 1], so 0.8 matches the car's calibrated steering limit exactly.
+    #
+    # max_throttle is NOT the calibration file's max_throttle despite the name.
+    # vesc_twist_node already caps itself at 0.382 * 20000 = 7640 ERPM, and
+    # Twist linear.x is a fraction of THAT. So this is a second, project-level
+    # speed limit. 0.15 is roughly 1150 ERPM: clearly visible on blocks, slow
+    # enough to walk alongside. Raise it deliberately after measuring on the
+    # ground.
     max_steering: 0.8
-    max_throttle: 0.382
+    max_throttle: 0.15
