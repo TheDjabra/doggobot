@@ -33,11 +33,20 @@ pub_bg() {  # pub_bg <topic> <yaml>  -> streams at 10 Hz until killed
   echo $!
 }
 
+# Preflight: a stale arbiter from a previous run would make TWO publishers on
+# /cmd_vel and silently corrupt every result below. Refuse to start instead.
+if pgrep -f 'lib/doggobot/arbiter_node' >/dev/null 2>&1; then
+  echo "REFUSING TO RUN: an arbiter_node is already alive."
+  pgrep -af 'lib/doggobot/arbiter_node'
+  echo "Stop it first:  pkill -f 'lib/doggobot/arbiter_node'"
+  exit 1
+fi
+
 echo "starting arbiter_node..."
 ros2 run doggobot arbiter_node >/tmp/arbiter_test.log 2>&1 &
 ARB=$!
 sleep 4
-kill -0 $ARB 2>/dev/null || { echo "arbiter died on startup:"; cat /tmp/arbiter_test.log; exit 1; }
+pgrep -f 'lib/doggobot/arbiter_node' >/dev/null || { echo "arbiter died on startup:"; cat /tmp/arbiter_test.log; exit 1; }
 
 echo
 echo "1. idle: no source publishing -> zero"
@@ -86,7 +95,17 @@ echo "9. all sources stop -> back to zero"
 kill $B2 2>/dev/null; sleep 2
 check "returns to idle zero" "0.000,0.000" "$(sample)"
 
-kill $ARB 2>/dev/null; wait 2>/dev/null
+# `ros2 run` is a launcher whose child is the real node. Killing the launcher
+# leaves the node alive, publishing zeros onto /cmd_vel forever. That orphan is
+# what made the first bench steering test look like a wiring fault: the servo
+# was being told 0.9 and 0.5 alternately, twenty times a second.
+kill $ARB 2>/dev/null
+pkill -f 'lib/doggobot/arbiter_node' 2>/dev/null
+wait 2>/dev/null
+sleep 1
+if pgrep -f 'lib/doggobot/arbiter_node' >/dev/null 2>&1; then
+  echo "WARNING: an arbiter survived cleanup:"; pgrep -af 'lib/doggobot/arbiter_node'
+fi
 echo
 echo "================ $pass passed, $fail failed ================"
 echo "arbiter log:"; sed -n '1,40p' /tmp/arbiter_test.log
