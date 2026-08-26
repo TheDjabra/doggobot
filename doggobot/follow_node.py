@@ -103,6 +103,7 @@ class FollowNode(Node):
         self.declare_parameter('allow_reverse', True)
 
         self.declare_parameter('target_timeout_s', 0.5)
+        self.declare_parameter('debug_hz', 0.0)   # >0 logs decisions at that rate
 
         g = self.get_parameter
         self.steer_pid = PID(float(g('kp_steer').value),
@@ -119,6 +120,8 @@ class FollowNode(Node):
         self.max_throttle = float(g('max_throttle').value)
         self.allow_reverse = bool(g('allow_reverse').value)
         self.timeout = float(g('target_timeout_s').value)
+        self.debug_hz = float(g('debug_hz').value)
+        self._last_debug = 0.0
 
         self.last_stamp = None
         self.last_msg_time = 0.0
@@ -215,6 +218,17 @@ class FollowNode(Node):
         cmd.linear.x = float(throttle)
         cmd.angular.z = float(steer)
         self.cmd_pub.publish(cmd)
+
+        # Log the inputs and the outputs from the SAME message. Sampling
+        # /target_state and /cmd_vel separately gives skewed pairs that look like
+        # control bugs and are not.
+        if self.debug_hz > 0:
+            now = time.time()
+            if now - self._last_debug >= 1.0 / self.debug_hz:
+                self._last_debug = now
+                self.get_logger().info(
+                    f'x={x:+.3f} z={z:6.0f} err={z - self.standoff:+7.0f} '
+                    f'-> steer={steer:+.3f} thr={throttle:+.3f}')
 
         self.last_steer = steer
         if self.state != status:

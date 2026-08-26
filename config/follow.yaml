@@ -25,3 +25,6 @@ follow_node:
     allow_reverse: true       # back off if the target closes inside the standoff
 
     target_timeout_s: 0.5     # perception dying must not read as "target centred"
+
+    debug_hz: 2.0             # log x, z, err, steer, throttle from one message.
+                              # Set 0 for quiet running.
