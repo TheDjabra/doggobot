@@ -77,11 +77,18 @@ def main():
                     'conf_threshold': float(spec['confidence_threshold']),
                     'max_det': 300,
                     'anchors': spec.get('anchors') or [],
-                    # The output tensors are named *_yolov6r2 because that is
-                    # the Luxonis export format, which is NOT the same thing as
-                    # the decoding subtype. This model is YOLO11, anchor-free,
-                    # same decoding family as YOLOv8. Overridable for testing.
-                    'subtype': os.environ.get('YOLO_SUBTYPE', 'yolov8'),
+                    # MEASURED, not guessed. All three were tried on the car
+                    # against a single person standing in frame:
+                    #   yolov6   -> conf 0.92 but garbage boxes (8x24 normalised,
+                    #               i.e. many times the image), ~10 per frame
+                    #   yolov8   -> sane single box but conf only ~0.55, because
+                    #               it reads a 5-channel layout from a 6-channel
+                    #               tensor and takes objectness as the score
+                    #   yolov6r2 -> one box, conf 0.94, stable            <-- correct
+                    # The subtype must match the EXPORT format, which is what the
+                    # output tensor names (*_yolov6r2) are telling you. It is not
+                    # the model's architecture generation.
+                    'subtype': os.environ.get('YOLO_SUBTYPE', 'yolov6r2'),
                 },
                 'outputs': [n for n, _ in outs],
             }],
