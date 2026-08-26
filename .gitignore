@@ -14,3 +14,6 @@ log/
 secrets.json
 # Vosk speech models: 68 MB of binary, fetched by tools/get_vosk_model.sh
 models/vosk-*/
+# NN archives are generated from the blob by tools/make_nn_archive.py, so they
+# are build output rather than source.
+models/*.tar.xz
