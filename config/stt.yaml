@@ -1,6 +1,8 @@
 stt_node:
   ros__parameters:
-    model_path: /home/pi/models/vosk-small-en
+    # Must be under the bind-mounted repo dir; the container cannot see
+    # /home/pi/models. Fetch with tools/get_vosk_model.sh on the Pi host.
+    model_path: /home/projects/ros2_ws/src/doggobot/models/vosk-small-en
 
     # PortAudio device, matched by name substring so it survives the index
     # shifting when other USB devices come and go. Empty would mean the ALSA

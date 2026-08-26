@@ -12,3 +12,5 @@ log/
 *.bag
 .env
 secrets.json
+# Vosk speech models: 68 MB of binary, fetched by tools/get_vosk_model.sh
+models/vosk-*/
