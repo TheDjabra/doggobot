@@ -30,7 +30,9 @@ Detail in [docs/architecture.md](docs/architecture.md). Hardware in
 
 ## Status
 
-Scaffolding. No nodes implemented yet.
+Drivable from a phone. `arbiter_node` and `voice_bridge_node` are implemented and validated on
+hardware, including the deadman and e-stop paths. Perception, behaviour primitives, the
+sequencing executor, and speech recognition are not built yet.
 
 ## Layout
 
@@ -44,8 +46,9 @@ build_log.md     dated engineering record
 
 ## Running it
 
-Runs inside the `Doggobot` container on the car's Raspberry Pi 5. See
-[docs/hardware.md](docs/hardware.md) for bring-up.
+Runs inside the `Doggobot` container on the car's Raspberry Pi 5.
+**[docs/runbook.md](docs/runbook.md)** is the step-by-step from `ssh doggobot` to driving from
+a phone. Hardware detail in [docs/hardware.md](docs/hardware.md).
 
 ## License
 
