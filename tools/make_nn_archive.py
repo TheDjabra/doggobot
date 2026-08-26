@@ -24,7 +24,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.path.join(os.path.dirname(HERE), 'models')
 BLOB = os.path.join(MODELS, 'person-yolo11n_openvino_2022.1_6shave.blob')
 META = os.path.join(MODELS, 'person-yolo11n.json')
-OUT = os.path.join(MODELS, 'person-yolo11n-416.tar.xz')
+OUT = os.path.join(MODELS, os.environ.get('ARCHIVE_NAME', 'person-yolo11n-416.tar.xz'))
 
 DTYPE = {'U8F': 'uint8', 'FP16': 'float16', 'FP32': 'float32'}
 
@@ -77,7 +77,11 @@ def main():
                     'conf_threshold': float(spec['confidence_threshold']),
                     'max_det': 300,
                     'anchors': spec.get('anchors') or [],
-                    'subtype': 'yolov6',
+                    # The output tensors are named *_yolov6r2 because that is
+                    # the Luxonis export format, which is NOT the same thing as
+                    # the decoding subtype. This model is YOLO11, anchor-free,
+                    # same decoding family as YOLOv8. Overridable for testing.
+                    'subtype': os.environ.get('YOLO_SUBTYPE', 'yolov8'),
                 },
                 'outputs': [n for n, _ in outs],
             }],
