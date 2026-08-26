@@ -515,3 +515,46 @@ real person says a real word.
 
 End to end confirmed: speaking "circle left" ran the circle for 6 s and "go forward" ran forward
 for 3 s, with nothing typed.
+
+### The throttle floor was wrong: 0.25, not 0.13 (2026-08-26)
+
+Symptom, spotted by Magnus: the drive was jumpy, and slow even on the ground.
+
+Measured with `tools/vesc_smoothness.py`, which commands a range of ERPM and samples the ACTUAL
+rpm repeatedly at each step, because a speed controller that cannot hold a setpoint shows up as
+spread between samples:
+
+| throttle | ERPM cmd | rpm mean | spread | motor A | |
+|---|---|---|---|---|---|
+| 0.100 | 764 | -2 | 42 | 0.17 | does not turn |
+| 0.130 | 993 | 1049 | **1676** | **14.60** | jumpy |
+| 0.160 | 1222 | 1342 | 708 | 12.76 | jumpy |
+| 0.200 | 1528 | 1489 | **1822** | 7.05 | jumpy |
+| **0.250** | 1910 | 1896 | **159** | **3.02** | **smooth** |
+| 0.300 | 2292 | 2286 | 139 | 2.88 | smooth |
+| 0.363 | 2773 | 2767 | 162 | 3.02 | smooth |
+
+**The mistake, and it is worth naming precisely.** Earlier I measured where the motor *starts*
+(nothing at 500 ERPM, turning at 1000) and built the whole throttle law on it. **Starting and
+running smoothly are different thresholds**, and the second is roughly twice the first. The
+class calibration had been saying so the whole time: `min_throttle: 0.363` is
+`lane_guidance_node`'s lower **operating bound**, not a safety limit. We had been driving at
+0.15, well under half the slowest speed the platform is calibrated to use.
+
+**The current draw matters more than the jitter.** At 0.13 the motor pulled **14.6 A** against
+**3.0 A** at cruise: the FOC speed loop fighting itself. Every slow test so far has drawn about
+five times normal current while going nowhere useful, which is hard on the motor, the ESC and
+the pack.
+
+Raised everywhere: floor 0.13 -> **0.25**, behaviour cruise 0.16 -> 0.30, follow max 0.15 ->
+0.28, teleop ceiling 0.30 -> 0.38.
+
+**Consequence to accept or engineer around**: the car now has no slow speed. It moves at 0.25+
+or it stops, so following approaches its standoff stop-go rather than rolling in gently. The
+distance deadband is what makes that tolerable.
+
+**The real fix, not done today.** The class `vesc_twist_node` drives the VESC in **RPM mode**,
+where a speed PID chases a setpoint and cannot hold low speeds. **Duty-cycle or current mode has
+no speed loop to hunt** and typically goes much slower smoothly; `vesc_client` already exposes
+`send_duty_cycle`. That means writing our own actuator node instead of using the class one,
+which is the genuine answer to "why can't this car go slowly".
