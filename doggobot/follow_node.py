@@ -101,6 +101,11 @@ class FollowNode(Node):
         self.declare_parameter('throttle_floor', 0.13)
         self.declare_parameter('max_throttle', 0.25)
         self.declare_parameter('allow_reverse', True)
+        # Reverse gets its own ceiling. Approaching a target and backing away
+        # from one are not symmetric situations: someone stepping toward the car
+        # produces a large negative error fast, and full-authority reverse there
+        # reads as the car bolting rather than yielding.
+        self.declare_parameter('max_reverse', 0.16)
 
         self.declare_parameter('target_timeout_s', 0.5)
         self.declare_parameter('debug_hz', 0.0)   # >0 logs decisions at that rate
@@ -119,6 +124,7 @@ class FollowNode(Node):
         self.floor = float(g('throttle_floor').value)
         self.max_throttle = float(g('max_throttle').value)
         self.allow_reverse = bool(g('allow_reverse').value)
+        self.max_reverse = float(g('max_reverse').value)
         self.timeout = float(g('target_timeout_s').value)
         self.debug_hz = float(g('debug_hz').value)
         self._last_debug = 0.0
@@ -146,7 +152,8 @@ class FollowNode(Node):
         """Below the motor's deadband the car stops rather than creeping."""
         if value == 0.0:
             return 0.0
-        mag = max(self.floor, min(self.max_throttle, abs(value)))
+        ceiling = self.max_throttle if value > 0 else self.max_reverse
+        mag = max(self.floor, min(ceiling, abs(value)))
         return math.copysign(mag, value)
 
     def _watchdog(self):
