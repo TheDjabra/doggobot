@@ -92,7 +92,7 @@ class ArbiterNode(Node):
         self.declare_parameter('max_steering', 0.8)
         self.declare_parameter('max_throttle', 0.382)
         # Informational, published in status so behaviours can respect it.
-        self.declare_parameter('throttle_floor', 0.25)
+        self.declare_parameter('throttle_floor', 0.365)
 
         self.publish_hz = self.get_parameter('publish_hz').value
         self.max_steering = self.get_parameter('max_steering').value

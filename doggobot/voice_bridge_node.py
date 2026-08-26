@@ -59,7 +59,7 @@ class BridgeNode(Node):
         super().__init__('voice_bridge_node')
         self.declare_parameter('port', 8080)
         self.declare_parameter('max_teleop_throttle', 0.30)
-        self.declare_parameter('throttle_floor', 0.25)
+        self.declare_parameter('throttle_floor', 0.365)
 
         self.port = int(self.get_parameter('port').value)
         self.max_teleop_throttle = float(

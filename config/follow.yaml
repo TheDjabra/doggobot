@@ -24,14 +24,24 @@ follow_node:
     kp_throttle: 0.0004       # err is in mm: 1000 mm error -> 0.4, clamped to max
     kd_throttle: 0.0001
     throttle_deadband_mm: 150.0   # +/-15 cm counts as "at the standoff"
-    throttle_floor: 0.25      # MEASURED smooth floor. NOTE the consequence: the
+    # 0.365, not the measured 0.25 minimum. Magnus's call after driving it: 0.25
+    # is where smoothness BEGINS, and sitting right on that edge leaves nothing
+    # for the humps (carpet seams, a slight incline, a wheel catching). 0.365 also
+    # lands on the class's own min_throttle, i.e. the slowest speed this platform
+    # is calibrated to drive.
+    #
+    # Consequence: with a ceiling of 0.382 the throttle loop now has almost no
+    # range to modulate within, so approach is effectively bang-bang: at speed,
+    # or stopped in the deadband. The PD term barely matters for throttle now.
+    # Steering is unaffected and still fully proportional.
+    throttle_floor: 0.365      # MEASURED smooth floor. NOTE the consequence: the
                               # car cannot follow slowly. It moves at 0.25+ or it
                               # stops, so approach is stop-go rather than a gentle
                               # roll-in. The distance deadband is what makes that
                               # acceptable.
     max_throttle: 0.38        # the platform's calibrated ceiling
     allow_reverse: true       # back off if the target closes inside the standoff
-    max_reverse: 0.28         # lower than max_throttle on purpose. Approaching and
+    max_reverse: 0.382         # lower than max_throttle on purpose. Approaching and
                               # retreating are not symmetric: someone stepping
                               # toward the car makes a big negative error fast, and
                               # full-authority reverse there reads as bolting

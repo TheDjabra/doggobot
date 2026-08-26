@@ -98,7 +98,7 @@ class FollowNode(Node):
         self.declare_parameter('kp_throttle', 0.0004)
         self.declare_parameter('kd_throttle', 0.0001)
         self.declare_parameter('throttle_deadband_mm', 150.0)
-        self.declare_parameter('throttle_floor', 0.25)
+        self.declare_parameter('throttle_floor', 0.365)
         self.declare_parameter('max_throttle', 0.25)
         self.declare_parameter('allow_reverse', True)
         # Reverse gets its own ceiling. Approaching a target and backing away
@@ -143,6 +143,15 @@ class FollowNode(Node):
         # A watchdog so that perception dying is not mistaken for "target
         # centred". Without it the last command would simply stop being updated.
         self.create_timer(0.1, self._watchdog)
+
+        # A floor above a ceiling would make the clamp emit MORE than the stated
+        # maximum, silently. Catch it at startup rather than in the field.
+        for name, ceiling in (('max_throttle', self.max_throttle),
+                              ('max_reverse', self.max_reverse)):
+            if self.floor > ceiling:
+                self.get_logger().error(
+                    f'throttle_floor {self.floor} exceeds {name} {ceiling}: the '
+                    f'floor will override the ceiling. Raise {name}.')
 
         self.get_logger().info(
             f'follow: standoff {self.standoff:.0f} mm, '

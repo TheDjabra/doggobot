@@ -31,4 +31,4 @@ arbiter_node:
     # speed loop cannot hold a setpoint: commanded 993 ERPM it wandered over a
     # 1676 ERPM range while drawing 14.6 A, against 3.0 A at cruise. Jumpy motion
     # and five times the current, for no useful speed.
-    throttle_floor: 0.25
+    throttle_floor: 0.365
