@@ -31,9 +31,10 @@ archive = dai.NNArchive(ARCHIVE)
 
 with dai.Pipeline() as pipeline:
     cam = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
+    preset = getattr(dai.node.StereoDepth.PresetMode,
+                     os.environ.get('STEREO_PRESET', 'ROBOTICS'))
     stereo = pipeline.create(dai.node.StereoDepth).build(
-        autoCreateCameras=True,
-        presetMode=dai.node.StereoDepth.PresetMode.ROBOTICS)
+        autoCreateCameras=True, presetMode=preset)
     # The OAK-D Lite runs out of SIPP buffer memory with the median filter on
     # once a NN and tracker share the chip: "'Median' out of system resources:
     # '126'". Turning it off is the cheap fix; depth gets slightly noisier, which
@@ -78,6 +79,11 @@ with dai.Pipeline() as pipeline:
                            else dai.TrackerType.ZERO_TERM_IMAGELESS)
     tracker.setTrackerIdAssignmentPolicy(dai.TrackerIdAssignmentPolicy.UNIQUE_ID)
     tracker.setMaxObjectsToTrack(10)
+    # The on-device tracker gets ONE SHAVE core once the NN and stereo have taken
+    # theirs, and it becomes the bottleneck: 7.6 fps without it, 1.2 with. The Pi
+    # has four idle Cortex-A76 cores, so running it host-side may be far cheaper.
+    if os.environ.get('TRACKER_HOST', '1') == '1':
+        tracker.setRunOnHost(True)
 
     det.passthrough.link(tracker.inputTrackerFrame)
     det.passthrough.link(tracker.inputDetectionFrame)
