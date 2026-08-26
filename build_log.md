@@ -204,3 +204,40 @@ property listing a node's service clients. The node died at construction with
 wifi. That is comfortably inside what a 20 Hz stick stream needs, and much better than feared.
 Worth re-measuring at Warren Mall on the phone hotspot, where it should improve further because
 Tailscale can then connect peer-to-peer over the local network instead of relaying.
+
+---
+
+## 2026-08-26 (lab) - Perception: getting the detector running under DepthAI v3
+
+**GPS removed**, LiDAR fitted. The USB bus is now VESC on `ttyACM0`, LD06 on `ttyUSB0`, OAK-D
+on USB, which is tidier than before and frees power budget.
+
+**The container runs depthai 3.1.0, not 2.x**, and the class's own `multi_cam_node.py` is
+written against the v3 API (`pipeline.create(dai.node.Camera).build(...)`,
+`requestOutput(...).createOutputQueue()`). Prior research notes said to pin v2; doing so would
+have broken the course camera node. v3 has everything the follow design needs: `NNArchive`,
+`DetectionNetwork`, `SpatialDetectionNetwork`, `ObjectTracker`, `StereoDepth`.
+
+**v3 configures detection through an NN Archive, not setters.** `DetectionNetwork` has no
+`setNumClasses`. Rather than re-export the model through a browser, `tools/make_nn_archive.py`
+reads the blob's own tensor names and shapes via `dai.OpenVINO.Blob()` and generates a
+schema-valid archive around the existing file.
+
+**The subtype trap.** The head metadata's `subtype` must match the export format, not the
+architecture generation. Measured against a single person in frame:
+
+- `yolov6`: confidence 0.92, **garbage boxes** (normalised sizes like 8.1 x 24.0, centres
+  outside the frame), ~10 per frame
+- `yolov8`: one sane box, confidence only ~0.55 (reads 5 channels from a 6-channel tensor)
+- `yolov6r2`: one box, confidence 0.94, stable. **Correct.**
+
+The important lesson is that **the wrong subtype reported high confidence**. `yolov6` looked
+like a working detector by every metric except the coordinates themselves, and a check of the
+form "is it detecting anything" would have passed it while the follow loop chased boxes many
+times the size of the image. Normalised box sizes must be within 0..1; printing them is what
+found this in one run.
+
+**Validated**: 23.0 fps at 416 (vs 25.6 natively under v2, so ~10% for the v3 pipeline and
+letterboxing), 1.07 detections per frame with one person present, best confidence 0.95.
+
+New tools: `tools/make_nn_archive.py`, `tools/probe_blob.py`, `tools/probe_detections.py`.
