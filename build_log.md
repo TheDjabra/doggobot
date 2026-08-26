@@ -241,3 +241,41 @@ found this in one run.
 letterboxing), 1.07 detections per frame with one person present, best confidence 0.95.
 
 New tools: `tools/make_nn_archive.py`, `tools/probe_blob.py`, `tools/probe_detections.py`.
+
+### Perception pipeline: measured costs, and the tracker trap
+
+Built `tools/probe_perception.py` to measure the full pipeline (stereo depth +
+spatial detection + tracking) before writing any ROS2 node that depends on it. Three
+resource walls, each of which would have been a mystery later.
+
+**1. SHAVE allocation.** The 6-shave blob refused to start: `Blob compiled for 6 shaves, but
+only 5 are available`. With StereoDepth, ImageManip, SpatialLocationCalculator and ObjectTracker
+each claiming cores, only 5 remain for the network. Recompiled the OpenVINO IR with
+`blobconverter(shaves=5)`; no re-export from the original weights needed.
+
+**2. Stereo median filter out of SIPP memory.** `'Median' out of system resources: '126'`.
+Turned the median filter off (`initialConfig.postProcessing.median = MEDIAN_OFF`). Depth is
+slightly noisier, which the host-side median we apply to Z compensates for anyway.
+
+**3. The ObjectTracker is the bottleneck, and `setRunOnHost(True)` is the fix.**
+
+| Configuration | fps |
+|---|---|
+| detector alone | 23.0 |
+| + stereo depth | 7.6 |
+| + tracker on-device (either type) | **1.2** |
+| + tracker on host | **11.3** |
+| + host tracker, FAST_DENSITY stereo | **12.1** |
+
+Once the NN and stereo have taken their SHAVEs the on-device tracker is allocated exactly one
+core and starves. Changing tracker type does not help (colour histogram 0.9, imageless 1.2); the
+allocation is the problem, not the algorithm. The Pi has four idle Cortex-A76 cores, so running
+it host-side costs essentially nothing and returns a 10x speedup.
+
+**Validated at 12.1 fps**: stable tracklet id, TRACKED on 116 of 121 frames with LOST appearing
+briefly as expected, depth following a person between 544 and 1034 mm.
+
+**Model choice, settled on data.** The custom 416 single-class detector gives 12 fps end to end.
+The stock COCO export is 640 with 80 classes, roughly 2.4x the pixels and a far wider head,
+which would land near 5 fps in the same pipeline. If more classes are ever wanted, train a small
+multi-class model at 416 rather than adopt the stock 640 one.
