@@ -36,7 +36,9 @@ with dai.Pipeline() as pipeline:
 
     archive = dai.NNArchive(ARCHIVE)
     det = pipeline.create(dai.node.DetectionNetwork)
-    det.build(rgb, archive, conf)
+    thr = float(sys.argv[1]) if len(sys.argv) > 1 else conf
+    print(f'confidence threshold for this run: {thr}')
+    det.build(rgb, archive, thr)
 
     q = det.out.createOutputQueue()
     pipeline.start()
