@@ -15,6 +15,7 @@ then speaks to the actuator with one voice.
 
 Priority, highest first:
 
+    0. /arm          (std_msgs/Bool)   master enable, OFF at power-on
     1. /estop        (std_msgs/Bool)   latched kill switch
     2. /safety_cmd   (Twist)           watchdogs, e.g. LiDAR proximity
     3. /teleop_cmd   (Twist)           manual joystick stream
@@ -68,6 +69,12 @@ class ArbiterNode(Node):
     def __init__(self):
         super().__init__('arbiter_node')
 
+        # The stack starts at power-on but the car must not obey anything until
+        # a person deliberately arms it. Powering on and arming are separate
+        # acts: a page can open by accident, be restored by the browser, or sit
+        # in a background tab, and none of those should be able to move a car.
+        self.declare_parameter('arm_on_start', False)
+
         self.declare_parameter('publish_hz', 20.0)
         self.declare_parameter('safety_timeout_s', 0.5)
         self.declare_parameter('teleop_timeout_s', 0.5)
@@ -108,9 +115,11 @@ class ArbiterNode(Node):
         self.by_name = {s.name: s for s in self.sources}
 
         self.estop = False
+        self.armed = bool(self.get_parameter('arm_on_start').value)
         self.active = None          # name of the winning source, for logging
 
         self.create_subscription(Bool, 'estop', self._on_estop, 10)
+        self.create_subscription(Bool, 'arm', self._on_arm, 10)
         self.create_subscription(
             Twist, 'safety_cmd', lambda m: self._on_cmd('safety', m), 10)
         self.create_subscription(
@@ -124,7 +133,8 @@ class ArbiterNode(Node):
         self.create_timer(1.0 / self.publish_hz, self._tick)
 
         self.get_logger().info(
-            f'arbiter up: {self.publish_hz:.0f} Hz, '
+            f'arbiter up {"ARMED" if self.armed else "DISARMED"}: '
+            f'{self.publish_hz:.0f} Hz, '
             f'steering +/-{self.max_steering}, throttle +/-{self.max_throttle}, '
             f'measured floor {self.throttle_floor}')
 
@@ -132,6 +142,12 @@ class ArbiterNode(Node):
 
     def _now(self):
         return self.get_clock().now().nanoseconds / 1e9
+
+    def _on_arm(self, msg):
+        if msg.data != self.armed:
+            self.get_logger().warn(
+                'ARMED' if msg.data else 'disarmed')
+        self.armed = msg.data
 
     def _on_estop(self, msg):
         if msg.data != self.estop:
@@ -154,6 +170,8 @@ class ArbiterNode(Node):
 
     def _select(self):
         """Return (name, twist) for whoever currently owns the actuators."""
+        if not self.armed:
+            return 'disarmed', Twist()
         if self.estop:
             return 'estop', Twist()
         now = self._now()
@@ -172,6 +190,7 @@ class ArbiterNode(Node):
         self.cmd_pub.publish(twist)
         self.status_pub.publish(String(data=json.dumps({
             'active': name,
+            'armed': self.armed,
             'estop': self.estop,
             'throttle': round(twist.linear.x, 4),
             'steering': round(twist.angular.z, 4),

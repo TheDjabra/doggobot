@@ -1,5 +1,9 @@
 arbiter_node:
   ros__parameters:
+    # The car powers on DISARMED and ignores every command until a person taps
+    # ARM in the app. Powering on and arming are deliberately separate acts.
+    arm_on_start: false
+
     publish_hz: 20.0
 
     # A source that stops publishing stops winning. Teleop and safety are tight

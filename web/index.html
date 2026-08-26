@@ -51,7 +51,18 @@ header{
 .dot.live{background:var(--c-ok)}
 .dot.bad{background:var(--c-alert)}
 
-/* ── kill switch: always visible, never behind a tab ────────────────── */
+/* ── arm + kill: always visible, never behind a tab ─────────────────── */
+#arm{
+  flex:0 0 auto; margin:10px 14px 0; padding:16px; border:2px solid var(--c-ink-faint);
+  background:transparent; color:var(--c-ink-dim); font-family:var(--font-display);
+  font-size:22px; letter-spacing:var(--track-wide); text-transform:uppercase;
+  text-align:center; cursor:pointer;
+}
+#arm.armed{border-color:var(--c-ok);background:rgb(106 191 89 / .14);color:var(--c-ok)}
+/* Everything that can move the car is inert until armed, so a stray tap on a
+   backgrounded page cannot drive it. */
+body:not(.armed) main{opacity:.4;pointer-events:none}
+
 #kill{
   flex:0 0 auto; margin:10px 14px 0; padding:16px; border:2px solid var(--c-alert);
   background:rgb(255 59 48 / .12); color:var(--c-alert); font-family:var(--font-display);
@@ -190,6 +201,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
   <span class="chip" id="rtt">-- ms</span>
 </header>
 
+<button id="arm">DISARMED - TAP TO ARM</button>
 <button id="kill">KILL</button>
 
 <nav>
@@ -282,7 +294,12 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${proto}://${location.host}/ws`);
     ws.onopen = () => { linked = true; paint(); };
-    ws.onclose = () => { linked = false; paint(); setTimeout(connect, 1000); };
+    ws.onclose = () => {
+      linked = false;
+      paintArm(false);          // no link means no authority, visibly
+      paint();
+      setTimeout(connect, 1000);
+    };
     ws.onerror = () => { linked = false; paint(); };
     ws.onmessage = e => {
       const m = JSON.parse(e.data);
@@ -291,6 +308,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
       else if (m.type === 'behavior') {
         $('prim').textContent = m.active || '--';
       }
+      else if (m.type === 'arbiter') paintArm(!!m.armed);
     };
   }
   function send(o) {
@@ -422,6 +440,24 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
       $('follow').textContent = following ? 'FOLLOWING - TAP TO RELEASE' : 'FOLLOW';
     }
   }
+
+  // ── arm gate ─────────────────────────────────────────────────────────
+  // The car powers on disarmed. This button is the only thing that changes
+  // that, and the page reflects the ARBITER's reported state rather than the
+  // last tap, so the two can never disagree about whether the car is live.
+  let armed = false;
+
+  function paintArm(a) {
+    if (a === armed) return;
+    armed = a;
+    $('arm').classList.toggle('armed', armed);
+    $('arm').textContent = armed ? 'ARMED - TAP TO DISARM' : 'DISARMED - TAP TO ARM';
+    document.body.classList.toggle('armed', armed);
+  }
+
+  $('arm').addEventListener('click', () => {
+    send({ type: 'arm', armed: !armed });
+  });
 
   $('follow').addEventListener('click', () => {
     send({ type: 'lock', engage: !following });

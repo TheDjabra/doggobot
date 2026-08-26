@@ -70,6 +70,7 @@ class BridgeNode(Node):
         self.estop_pub = self.create_publisher(Bool, 'estop', 10)
         self.voice_pub = self.create_publisher(String, 'voice_cmd', 10)
         self.lock_pub = self.create_publisher(String, 'target_lock', 10)
+        self.arm_pub = self.create_publisher(Bool, 'arm', 10)
 
         # Latest perception state, pushed to the phone so the operator can see
         # WHAT the car is following rather than inferring it from behaviour.
@@ -82,6 +83,9 @@ class BridgeNode(Node):
         # rather than what the operator last asked for.
         self.behavior = {'active': None}
         self.create_subscription(String, 'behavior_state', self._on_behavior, 10)
+
+        self.arbiter = {'armed': False}
+        self.create_subscription(String, 'arbiter/status', self._on_arbiter, 10)
 
         # NOT `self.clients`: rclpy.node.Node already defines `clients` as a
         # read-only property listing this node's service clients.
@@ -117,6 +121,16 @@ class BridgeNode(Node):
             self.behavior = json.loads(msg.data)
         except Exception:                                    # noqa: BLE001
             pass
+
+    def _on_arbiter(self, msg):
+        try:
+            self.arbiter = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            pass
+
+    def publish_arm(self, armed):
+        self.arm_pub.publish(Bool(data=bool(armed)))
+        self.get_logger().warn(f'{"ARMED" if armed else "disarmed"} from phone')
 
     def publish_lock(self, engage):
         action = 'lock' if engage else 'release'
@@ -198,6 +212,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                         {'type': 'target', **node.target}))
                     await sock.send_text(json.dumps(
                         {'type': 'behavior', **node.behavior}))
+                    await sock.send_text(json.dumps(
+                        {'type': 'arbiter', **node.arbiter}))
                     await asyncio.sleep(0.2)
             except Exception:                                # noqa: BLE001
                 pass
@@ -211,6 +227,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                 if kind == 'teleop':
                     node.publish_teleop(msg.get('throttle', 0.0),
                                         msg.get('steering', 0.0))
+                elif kind == 'arm':
+                    node.publish_arm(bool(msg.get('armed', False)))
                 elif kind == 'estop':
                     node.publish_estop(msg.get('engaged', True))
                 elif kind == 'voice':
@@ -237,9 +255,10 @@ def build_app(node: BridgeNode) -> FastAPI:
             node.client_count -= 1
             node.get_logger().info(f'client gone ({node.client_count} left)')
             if node.client_count <= 0:
-                # Last client out: stop asserting teleop. The arbiter's staleness
-                # timeout does the rest.
+                # Last client out: stop asserting teleop AND disarm. Walking away
+                # from the car should leave it inert, not merely idle.
                 node.publish_teleop(0.0, 0.0)
+                node.publish_arm(False)
 
     return app
 
