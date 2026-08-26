@@ -233,8 +233,10 @@ class FollowNode(Node):
             now = time.time()
             if now - self._last_debug >= 1.0 / self.debug_hz:
                 self._last_debug = now
+                err_s = (f'{z - self.standoff:+7.0f}' if z > 0
+                         else '  no-depth')
                 self.get_logger().info(
-                    f'x={x:+.3f} z={z:6.0f} err={z - self.standoff:+7.0f} '
+                    f'x={x:+.3f} z={z:6.0f} err={err_s} '
                     f'-> steer={steer:+.3f} thr={throttle:+.3f}')
 
         self.last_steer = steer
