@@ -1,0 +1,33 @@
+# First-closed-loop-on-the-ground settings. Deliberately timid.
+#
+# The follow loop has only ever run on a stand, where the error never responds to
+# the output, so overshoot and oscillation are completely unmeasured. This config
+# changes one thing at a time: it lets the car chase, at the slowest speed the
+# motor will sustain, with reverse switched off so a target stepping toward the
+# car cannot make it dart backwards.
+#
+#   ros2 launch doggobot all.launch.py
+#   (then load this over follow.yaml, or copy its values in)
+#
+# Once the loop is seen to be stable, raise max_throttle toward 0.25 and turn
+# reverse back on.
+follow_node:
+  ros__parameters:
+    kp_steer: 0.6
+    ki_steer: 0.0
+    kd_steer: 0.1
+    steer_deadband: 0.05
+    max_steer: 0.7
+
+    standoff_mm: 1000.0
+    kp_throttle: 0.0004
+    kd_throttle: 0.0001
+    throttle_deadband_mm: 200.0   # wider than bench: less hunting on a first run
+    throttle_floor: 0.13
+    max_throttle: 0.15            # the motor floor plus a hair. Slowest the car
+                                  # can move at all.
+    allow_reverse: false          # one variable at a time
+    max_reverse: 0.16
+
+    target_timeout_s: 0.5
+    debug_hz: 2.0
