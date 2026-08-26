@@ -9,6 +9,7 @@ the phone bridge and is bench-only for that reason.
     perception_node     /target_state
     follow_node         /follow_cmd
     behavior_node       /behavior_cmd  (sole owner; relays follow_cmd in follow mode)
+    stt_node            on-board mic -> /voice_cmd (offline Vosk)
     voice_bridge_node   phone: sticks, kill switch, (later) speech
 
 Arbiter priority means the phone always wins: e-stop beats everything, and the
@@ -54,5 +55,6 @@ def generate_launch_description():
              parameters=[PathJoinSubstitution([share, 'config', follow_config])],
              output='screen', emulate_tty=True),
         node('behavior_node', 'behavior.yaml'),
+        node('stt_node', 'stt.yaml'),
         node('voice_bridge_node', 'bridge.yaml'),
     ])
