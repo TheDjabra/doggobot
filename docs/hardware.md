@@ -9,7 +9,7 @@
 | Compute | Raspberry Pi 5, 16 GB, Raspberry Pi OS Bookworm (64-bit) |
 | Motor control | VESC over USB CDC-ACM, `/dev/ttyACM*` |
 | Camera | Luxonis OAK-D Lite, Myriad X accelerator, stereo baseline 7.5 cm |
-| LiDAR | LD06 (not fitted as of 2026-08-25) |
+| LiDAR | LD06, fitted 2026-08-26, `/dev/ttyUSB0` (CP2102 bridge) |
 | Battery | **4S**, measured 15.1 V at the VESC |
 
 ### Measured drive characteristics (bench, 2026-08-25)
@@ -82,6 +82,45 @@ before it strips a gear during a sweep.
 The servo is 7.4 V and the car's main pack is 3S (11.1 V nominal, 12.6 V charged), so it does
 not run off the main pack. A separate 2S pack feeds the adapter, sized for stall current,
 which is amps rather than milliamps on a 19 kg servo.
+
+## LiDAR: role and mounting (decided 2026-08-26)
+
+**Role: the 290 degrees the camera cannot see.** Not sensor fusion. The OAK-D already returns
+fused XYZ per bounding box computed on-camera, so fusing a LiDAR range into the same target
+would buy marginal precision at 1 to 5 m in exchange for a camera-to-LiDAR extrinsic
+calibration that can be silently wrong. Spring 2023 Team 10 documented being burned by exactly
+that mounting-offset problem. The camera covers roughly 70 degrees; the LiDAR covers the rest,
+and that complement is where the value is.
+
+Three cases in this project specifically:
+- **Reversing.** The mission ends with "then reverse" and the camera faces forward, so nothing
+  watches where the car is going.
+- **Obstacles while following.** The car is steering to keep a person centred and is therefore,
+  by construction, looking at the person and not at what it is about to clip.
+- **During the pan-servo search sweep**, when the camera is deliberately pointed away.
+
+**Implementation stays trivial**: `safety_node` subscribes `/scan`, takes the minimum range in
+an angular window, publishes a stop on `/safety_cmd` when something is inside the threshold.
+The refinement is that the **window depends on the behaviour's current state** (forward arc when
+driving forward, rear arc when reversing, wide when searching), which the behaviour node already
+knows. No SLAM, no costmap, no Nav2. Those are what make LiDAR expensive; a `min()` over ~450
+floats at 10 Hz is not.
+
+**Mounting: rigid, top of the stack, in the position originally intended for the GPS.**
+
+- **GPS is dropped.** The RTK waypoint work is already graded and nothing in the final project
+  uses it. Unplug the GNSS module (CP2105 dual bridge) to free USB power budget on the bus the
+  OAK-D already peaks near 1 A on, and to stop it shuffling serial device enumeration.
+- **LiDAR above the camera** is the correct order: the camera mount then sits below the scan
+  plane and cannot occlude it. Reversed, there would be a permanent blind wedge rotating with
+  the servo.
+- **Known blind spot, accepted**: a high scan plane sees torsos and walls but not cones, curbs,
+  or anything on the ground. Correct for the EBU courtyard hazards, and worth remembering so the
+  safety node is not mistaken for full obstacle coverage.
+- **Cable routing is the real risk.** A spinning LiDAR and a 270-degree panning camera will be
+  adjacent. The turret already lost time to an unclamped pan axis tangling its wiring. Route the
+  LiDAR cable out on the opposite side from the camera's sweep arc, strain-relieve both, and keep
+  the software clamp on pan limits regardless.
 
 ## Microphone
 
