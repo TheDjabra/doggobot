@@ -41,7 +41,11 @@ from std_msgs.msg import String
 PHRASES = [
     # Wake word. The mic listens continuously and the rest of this vocabulary is
     # ordinary English, so behavior_node requires this prefix on mic commands.
-    'rex',
+    # Two syllables on purpose: a longer word gives the recogniser more acoustic
+    # content than a one-syllable name like "rex", which also rhymes with several
+    # common words. Note "atlas" is a Boston Dynamics robot, so it does come up in
+    # robotics conversation; if phantom commands ever appear, suspect that first.
+    'atlas',
     'stop', 'halt',
     'wait', 'hold', 'stay', 'freeze',
     'forward', 'go forward', 'go straight', 'ahead',
