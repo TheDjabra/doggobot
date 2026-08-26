@@ -22,11 +22,12 @@ kill_pat() {
 
 kill_pat 'ros2 launc[h] doggobot'                  'ros2 launch'
 kill_pat 'lib/doggobot/arbiter_nod[e]'             'arbiter_node'
+kill_pat 'lib/doggobot/voice_bridge_nod[e]'        'voice_bridge_node'
 kill_pat 'ucsd_robocar_actuator2_pkg/vesc_twist_nod[e]' 'vesc_twist_node'
 kill_pat 'topic pu[b]'                             'stray topic pub'
 
 sleep 1
-left=$(pgrep -af 'lib/doggobot/arbiter_nod[e]|vesc_twist_nod[e]|ros2 launc[h] doggobot' 2>/dev/null)
+left=$(pgrep -af 'lib/doggobot/arbiter_nod[e]|lib/doggobot/voice_bridge_nod[e]|vesc_twist_nod[e]|ros2 launc[h] doggobot' 2>/dev/null)
 if [ -n "$left" ]; then
   echo "STILL RUNNING:"; echo "$left"; exit 1
 fi
