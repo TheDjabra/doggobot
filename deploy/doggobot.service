@@ -1,0 +1,43 @@
+[Unit]
+Description=Doggobot autonomy stack (ROS2 inside the Doggobot container)
+Documentation=https://github.com/TheDjabra/doggobot
+Requires=docker.service
+After=docker.service network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+
+# The container survives reboots but does not start itself. Starting an already
+# running container is a no-op, so this is safe to repeat.
+ExecStartPre=-/usr/bin/docker start Doggobot
+ExecStartPre=/bin/sleep 3
+
+# Clear any survivors before launching. A stale node from a previous run leaves
+# two publishers on /cmd_vel, which presents as a hardware fault rather than a
+# software one, so it is worth spending a second to make impossible.
+ExecStartPre=-/usr/bin/docker exec Doggobot bash /home/projects/ros2_ws/src/doggobot/tools/stop_stack.sh
+
+ExecStart=/usr/bin/docker exec Doggobot bash -lc \
+  'source /home/projects/ros2_ws/src/doggobot/tools/env.sh && \
+   exec ros2 launch doggobot all.launch.py'
+
+# systemd kills the `docker exec` client, not the processes inside the container,
+# so tear them down explicitly or they keep driving.
+ExecStop=-/usr/bin/docker exec Doggobot bash /home/projects/ros2_ws/src/doggobot/tools/stop_stack.sh
+
+Restart=on-failure
+RestartSec=5
+# A crash loop should not hammer the motors. Give up after 3 tries in 2 minutes
+# and leave the car stopped rather than repeatedly half-starting an autonomy
+# stack nobody is watching.
+StartLimitBurst=3
+StartLimitIntervalSec=120
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=doggobot
+
+[Install]
+WantedBy=multi-user.target
