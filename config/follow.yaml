@@ -1,0 +1,27 @@
+follow_node:
+  ros__parameters:
+    # --- steering ---
+    # Starting point is the car's own lane-following calibration
+    # (ros_racer_calibration.yaml: Kp 0.2 / Ki 0.0 / Kd 0.1). Same servo, same
+    # steering geometry, same actuator scale. The error SOURCE differs: a bbox
+    # centre at ~12 fps is noisier than a lane centroid, so expect kd to want
+    # lowering if the steering chatters. The D term is already low-passed.
+    kp_steer: 0.2
+    ki_steer: 0.0
+    kd_steer: 0.1
+    steer_deadband: 0.05      # ignore <5% off-centre; stops hunting
+    max_steer: 0.7            # inside the arbiter's 0.8 clamp
+
+    # --- throttle ---
+    standoff_mm: 1000.0       # provisional. Refine by measuring where detector
+                              # confidence peaks, once testing on the ground.
+    kp_throttle: 0.0004       # err is in mm: 1000 mm error -> 0.4, clamped to max
+    kd_throttle: 0.0001
+    throttle_deadband_mm: 150.0   # +/-15 cm counts as "at the standoff"
+    throttle_floor: 0.13      # MEASURED motor deadband; below this the car stops
+                              # rather than creeping, so the PD output steps over it
+    max_throttle: 0.25        # below the arbiter's 0.382; a follow loop does not
+                              # need lap speed
+    allow_reverse: true       # back off if the target closes inside the standoff
+
+    target_timeout_s: 0.5     # perception dying must not read as "target centred"

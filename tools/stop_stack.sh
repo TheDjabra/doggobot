@@ -23,6 +23,8 @@ kill_pat() {
 kill_pat 'ros2 launc[h] doggobot'                  'ros2 launch'
 kill_pat 'lib/doggobot/arbiter_nod[e]'             'arbiter_node'
 kill_pat 'lib/doggobot/voice_bridge_nod[e]'        'voice_bridge_node'
+kill_pat 'lib/doggobot/perception_nod[e]'          'perception_node'
+kill_pat 'lib/doggobot/follow_nod[e]'              'follow_node'
 kill_pat 'ucsd_robocar_actuator2_pkg/vesc_twist_nod[e]' 'vesc_twist_node'
 kill_pat 'topic pu[b]'                             'stray topic pub'
 

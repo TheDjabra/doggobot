@@ -30,6 +30,7 @@ setup(
             'arbiter_node = doggobot.arbiter_node:main',
             'voice_bridge_node = doggobot.voice_bridge_node:main',
             'perception_node = doggobot.perception_node:main',
+            'follow_node = doggobot.follow_node:main',
         ],
     },
 )
