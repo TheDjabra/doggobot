@@ -558,3 +558,25 @@ where a speed PID chases a setpoint and cannot hold low speeds. **Duty-cycle or 
 no speed loop to hunt** and typically goes much slower smoothly; `vesc_client` already exposes
 `send_duty_cycle`. That means writing our own actuator node instead of using the class one,
 which is the genuine answer to "why can't this car go slowly".
+
+### Phone speech layer working (2026-08-26)
+
+Primitive buttons wired, browser speech recognition attached, behaviour and target telemetry
+pushed back to the phone at 5 Hz.
+
+- **Buttons and speech converge on `/voice_cmd`**, so `behavior_node` stays the single place that
+  knows what the car can do and a button cannot behave differently from the same word spoken.
+- **Speech sends its top three ranked guesses.** `behavior_node` falls through to the next
+  alternative when the top one is not a command, which recovers near-misses in a noisy room.
+- **Firefox cannot do this at all.** It implements the Web Speech API's synthesis half and has
+  never shipped `SpeechRecognition`; no flag fixes it. Chromium and Safari only. Worth stating in
+  the writeup as a constraint that partly justifies the on-robot microphone path existing.
+
+**Result: phone speech outperforms the on-board mic**, and is sometimes faster. Not surprising in
+hindsight: the phone's microphone sits at the speaker's mouth with real noise suppression, while
+the Samson is bolted inches from the Pi's cooler in a room measured at RMS 2786 of noise floor.
+Google's recognition is also better than a 68 MB offline model.
+
+That reframes the two paths honestly. **The on-board mic's value is that it needs no phone and no
+network, not that it is better.** Phone is the primary input; the mic is the one that still works
+when the phone is in a pocket or there is no connectivity.
