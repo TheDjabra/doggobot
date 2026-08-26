@@ -1,0 +1,17 @@
+stt_node:
+  ros__parameters:
+    model_path: /home/pi/models/vosk-small-en
+
+    # PortAudio device. Empty means the ALSA default, which in this container is
+    # NOT the Samson (card 2). Set explicitly to avoid listening to nothing.
+    device: "plughw:2,0"
+
+    sample_rate: 16000
+
+    # Constrain recognition to the exact phrase list. In a lab with motors and
+    # other teams talking this matters more than model quality: a fragment of
+    # someone else's sentence cannot become a command, because those words are
+    # not in the vocabulary. Set false for free-form, which the LLM tier wants.
+    use_grammar: true
+
+    min_words: 1
