@@ -1,0 +1,25 @@
+{
+    "model": {
+        "xml": "person-yolo11n.xml",
+        "bin": "person-yolo11n.bin"
+    },
+    "nn_config": {
+        "output_format": "detection",
+        "NN_family": "YOLO",
+        "input_size": "416x416",
+        "NN_specific_metadata": {
+            "classes": 1,
+            "coordinates": 4,
+            "anchors": [],
+            "anchor_masks": {},
+            "iou_threshold": 0.5,
+            "confidence_threshold": 0.5
+        }
+    },
+    "mappings": {
+        "labels": [
+            "person"
+        ]
+    },
+    "version": 1
+}
