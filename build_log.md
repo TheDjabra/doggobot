@@ -370,3 +370,54 @@ conversational distance. That is the close-range vertical-framing problem appear
 measurement for the first time: at half a metre the camera crops the body and the 0.5 threshold
 has little margin. This is the number that should set the follow standoff, so measure where
 confidence peaks by walking a range rather than picking 1.5 m out of caution.
+
+### follow_node (2026-08-26)
+
+`/target_state` -> PD on two numbers -> `/behavior_cmd`. Steering from `x` (bbox centre offset),
+throttle from `z_mm` against a standoff, provisionally 1000 mm.
+
+**Status handling.** TRACKED gets full control. LOST holds the last steering and cuts throttle:
+the tracker's LOST is a grace period for brief occlusion and not a reason to drop a lock, but
+driving toward something we cannot currently see is not acceptable either, so the car stops and
+keeps pointing. Anything else publishes **nothing at all** and lets the arbiter's staleness
+timeout release the car, which is a safer stop than a stream of zeros because it also covers
+this node crashing.
+
+**Derivative is low-passed.** The input arrives at ~12 Hz from a detector, and raw frame-to-frame
+differences of a bounding-box centre are mostly noise.
+
+**A watchdog covers perception dying**, so a frozen `/target_state` is not mistaken for "target
+centred and stationary".
+
+#### Tuning, measured rather than assumed
+
+Steering gains started from the car's own lane-following calibration (`Kp 0.2 / Kd 0.1`). Same
+servo, same geometry, same actuator scale, so a legitimate starting point. Measurement showed
+the **error signal's scale differs**: with `x` normalised to +/-1 and steering clamped at +/-0.8,
+`kp 0.2` gave `x=+0.455 -> steer=+0.078`, under 10% of available authority for a target half a
+frame off centre. A lane centroid deviates a little; a tracked person sits at the frame edge.
+Raised to **0.6**, which now gives `x=+0.509 -> steer=+0.357`.
+
+Reverse got its own ceiling (`max_reverse 0.16` against `max_throttle 0.25`). Approaching and
+retreating are not symmetric: someone stepping toward the car produces a large negative error
+quickly, and the uncapped loop commanded -0.24, which reads as bolting rather than yielding.
+
+#### Validated on the stand
+
+| Input | Commanded |
+|---|---|
+| `x=-0.014` (centred) | `steer 0.000` (deadband) |
+| `x=+0.509` | `steer +0.357` |
+| `x=-0.648` | `steer -0.388` |
+| `err +1159` | `thr +0.250` (max) |
+| `err +424` | `thr +0.130` (stepped to the motor floor) |
+
+**This validates the control LAW, not the control LOOP.** On a stand the car cannot move, so the
+error never responds to the output. Overshoot, oscillation, settling time, and whether `kd`
+amplifies detector noise are all invisible until the wheels are on the ground. Ground testing is
+also when the 1000 mm standoff gets refined against where detector confidence actually peaks.
+
+**Diagnostic lesson**: the first attempt polled `/target_state` and `/cmd_vel` separately about
+0.8 s apart, producing pairs that looked like control bugs (a positive throttle next to a
+too-close distance) and were pure sampling skew. The controller now logs its inputs and outputs
+from the same message, which is the only trustworthy way to read a control loop.
