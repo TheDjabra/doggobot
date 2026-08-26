@@ -24,12 +24,14 @@ follow_node:
     kp_throttle: 0.0004       # err is in mm: 1000 mm error -> 0.4, clamped to max
     kd_throttle: 0.0001
     throttle_deadband_mm: 150.0   # +/-15 cm counts as "at the standoff"
-    throttle_floor: 0.13      # MEASURED motor deadband; below this the car stops
-                              # rather than creeping, so the PD output steps over it
-    max_throttle: 0.25        # below the arbiter's 0.382; a follow loop does not
-                              # need lap speed
+    throttle_floor: 0.25      # MEASURED smooth floor. NOTE the consequence: the
+                              # car cannot follow slowly. It moves at 0.25+ or it
+                              # stops, so approach is stop-go rather than a gentle
+                              # roll-in. The distance deadband is what makes that
+                              # acceptable.
+    max_throttle: 0.38        # the platform's calibrated ceiling
     allow_reverse: true       # back off if the target closes inside the standoff
-    max_reverse: 0.16         # lower than max_throttle on purpose. Approaching and
+    max_reverse: 0.28         # lower than max_throttle on purpose. Approaching and
                               # retreating are not symmetric: someone stepping
                               # toward the car makes a big negative error fast, and
                               # full-authority reverse there reads as bolting

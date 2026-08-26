@@ -98,7 +98,7 @@ class FollowNode(Node):
         self.declare_parameter('kp_throttle', 0.0004)
         self.declare_parameter('kd_throttle', 0.0001)
         self.declare_parameter('throttle_deadband_mm', 150.0)
-        self.declare_parameter('throttle_floor', 0.13)
+        self.declare_parameter('throttle_floor', 0.25)
         self.declare_parameter('max_throttle', 0.25)
         self.declare_parameter('allow_reverse', True)
         # Reverse gets its own ceiling. Approaching a target and backing away

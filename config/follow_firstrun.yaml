@@ -23,11 +23,11 @@ follow_node:
     kp_throttle: 0.0004
     kd_throttle: 0.0001
     throttle_deadband_mm: 200.0   # wider than bench: less hunting on a first run
-    throttle_floor: 0.13
-    max_throttle: 0.15            # the motor floor plus a hair. Slowest the car
-                                  # can move at all.
+    throttle_floor: 0.25
+    max_throttle: 0.28            # just above the measured SMOOTH floor of 0.25.
+                                  # 0.15 was inside the juddering region.
     allow_reverse: false          # one variable at a time
-    max_reverse: 0.16
+    max_reverse: 0.28
 
     target_timeout_s: 0.5
     debug_hz: 2.0

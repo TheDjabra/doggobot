@@ -4,9 +4,9 @@ voice_bridge_node:
 
     # Manual driving ceiling, below the arbiter's 0.382, because a thumb on a
     # phone deserves less authority than a tuned autonomous behaviour.
-    max_teleop_throttle: 0.30
+    max_teleop_throttle: 0.38
 
-    # Measured motor deadband (tools/vesc_probe.py). The bridge steps small
-    # throttle requests up to this, so a low speed-slider setting still moves the
-    # car instead of feeling like a dead button.
-    throttle_floor: 0.13
+    # Measured SMOOTH floor (tools/vesc_smoothness.py), not the start threshold.
+    # The bridge steps small stick deflections up to this, because below it the
+    # car judders instead of creeping.
+    throttle_floor: 0.25

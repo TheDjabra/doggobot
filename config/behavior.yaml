@@ -2,10 +2,11 @@ behavior_node:
   ros__parameters:
     publish_hz: 20.0
 
-    # Just above the measured motor floor of 0.13. Primitives are demo motions,
-    # not lap driving, and slow reads as deliberate rather than broken.
-    cruise_throttle: 0.16
-    reverse_throttle: 0.15
+    # Above the measured SMOOTH floor of 0.25 (tools/vesc_smoothness.py).
+    # Anything under that jitters badly and draws ~5x the current, so "slow and
+    # deliberate" is not available on this drivetrain: it is 0.25+ or stopped.
+    cruise_throttle: 0.30
+    reverse_throttle: 0.28
 
     # Held steering for circles. 0.7 matches the follow controller's ceiling and
     # sits inside the arbiter's 0.8 clamp, so a circle is the tightest arc the

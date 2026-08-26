@@ -25,4 +25,10 @@ arbiter_node:
     # than ramping smoothly to zero.
     max_steering: 0.8
     max_throttle: 0.382
-    throttle_floor: 0.13
+    # MEASURED 2026-08-26 with tools/vesc_smoothness.py, and this replaces the
+    # earlier 0.13. That number was where the motor STARTS; this is where it runs
+    # SMOOTHLY, which is a different and higher threshold. Below 0.25 the FOC
+    # speed loop cannot hold a setpoint: commanded 993 ERPM it wandered over a
+    # 1676 ERPM range while drawing 14.6 A, against 3.0 A at cruise. Jumpy motion
+    # and five times the current, for no useful speed.
+    throttle_floor: 0.25
