@@ -31,7 +31,14 @@ archive = dai.NNArchive(ARCHIVE)
 
 with dai.Pipeline() as pipeline:
     cam = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
-    stereo = pipeline.create(dai.node.StereoDepth).build(autoCreateCameras=True)
+    stereo = pipeline.create(dai.node.StereoDepth).build(
+        autoCreateCameras=True,
+        presetMode=dai.node.StereoDepth.PresetMode.ROBOTICS)
+    # The OAK-D Lite runs out of SIPP buffer memory with the median filter on
+    # once a NN and tracker share the chip: "'Median' out of system resources:
+    # '126'". Turning it off is the cheap fix; depth gets slightly noisier, which
+    # the median filter we apply host-side on Z compensates for anyway.
+    stereo.initialConfig.postProcessing.median = dai.MedianFilter.MEDIAN_OFF
 
     det = pipeline.create(dai.node.SpatialDetectionNetwork)
     det.build(cam, stereo, archive)
