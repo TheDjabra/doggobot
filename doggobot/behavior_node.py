@@ -5,6 +5,11 @@ Sole publisher of /behavior_cmd. Exactly one primitive runs at a time, which is
 the whole point: "circle left" must cancel "forward" rather than blending with
 it.
 
+Commands from the on-robot microphone must be prefixed with the wake word
+("doggo forward"), because that mic listens continuously and the vocabulary is
+ordinary English. Phone speech does not need it: holding the talk button is the
+gate. See `wake_word_sources`.
+
 Accepts commands on /voice_cmd, in either shape, so speech and buttons converge:
 
     {"action": "circle_left"}          from a button, or later from the LLM tier
@@ -73,6 +78,15 @@ class BehaviorNode(Node):
         self.declare_parameter('circle_seconds', 6.0)
         self.declare_parameter('max_seconds', 15.0)
 
+        # The on-robot microphone listens continuously and the vocabulary is made
+        # of very common English words (stop, back, forward, wait, left, right).
+        # Without a gate, anyone talking near the car can drive it: observed
+        # 2026-08-26, when overheard speech matched "back" and reversed the car
+        # mid-test. The phone does not need this because holding the talk button
+        # is already a deliberate act, so the requirement is per-source.
+        self.declare_parameter('wake_word', 'doggo')
+        self.declare_parameter('wake_word_sources', ['onboard-mic'])
+
         g = self.get_parameter
         self.hz = float(g('publish_hz').value)
         self.cruise = float(g('cruise_throttle').value)
@@ -81,6 +95,8 @@ class BehaviorNode(Node):
         self.default_s = float(g('default_seconds').value)
         self.circle_s = float(g('circle_seconds').value)
         self.max_s = float(g('max_seconds').value)
+        self.wake = str(g('wake_word').value).lower().strip()
+        self.wake_sources = set(g('wake_word_sources').value or [])
 
         self.active = None          # primitive name, or None when idle
         self.until = 0.0            # wall-clock deadline; 0 means open-ended
@@ -110,11 +126,25 @@ class BehaviorNode(Node):
                     return name
         return None
 
+    def _strip_wake(self, text):
+        """Return the command after the wake word, or None if absent.
+
+        Accepts the wake word anywhere in the utterance rather than only at the
+        start, because recognisers frequently prepend filler.
+        """
+        words = text.lower().split()
+        if self.wake not in words:
+            return None
+        return ' '.join(words[words.index(self.wake) + 1:])
+
     def _on_command(self, msg):
         try:
             m = json.loads(msg.data)
         except Exception:                                    # noqa: BLE001
             return
+
+        source = m.get('source', '')
+        needs_wake = self.wake and source in self.wake_sources
 
         action = m.get('action')
         if not action:
@@ -126,6 +156,15 @@ class BehaviorNode(Node):
             candidates = [c for c in candidates if c]
             if not candidates:
                 return
+
+            if needs_wake:
+                gated = [self._strip_wake(c) for c in candidates]
+                gated = [c for c in gated if c]
+                if not gated:
+                    self.get_logger().debug(
+                        f'ignored (no wake word): {candidates[0]!r}')
+                    return
+                candidates = gated
             for i, text in enumerate(candidates):
                 action = self._match(text)
                 if action:

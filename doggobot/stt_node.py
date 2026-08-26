@@ -39,6 +39,9 @@ from std_msgs.msg import String
 # multi-word phrases ("back" from "back up"). behavior_node's matcher therefore
 # accepts the single-word forms too.
 PHRASES = [
+    # Wake word. The mic listens continuously and the rest of this vocabulary is
+    # ordinary English, so behavior_node requires this prefix on mic commands.
+    'doggo',
     'stop', 'halt',
     'wait', 'hold', 'stay', 'freeze',
     'forward', 'go forward', 'go straight', 'ahead',
