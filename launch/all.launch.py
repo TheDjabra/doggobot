@@ -22,13 +22,18 @@ import os
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     share = get_package_share_directory('doggobot')
+
+    # Swap the follow tuning without editing files, e.g. the timid first-run set:
+    #   ros2 launch doggobot all.launch.py follow_config:=follow_firstrun.yaml
+    follow_config = LaunchConfiguration('follow_config')
     vesc_launch = os.path.join(
         get_package_share_directory('ucsd_robocar_actuator2_pkg'),
         'launch', 'vesc_twist.launch.py')
@@ -39,9 +44,13 @@ def generate_launch_description():
                     output='screen', emulate_tty=True)
 
     return LaunchDescription([
+        DeclareLaunchArgument('follow_config', default_value='follow.yaml',
+                              description='which follow tuning file to load'),
         IncludeLaunchDescription(PythonLaunchDescriptionSource(vesc_launch)),
         node('arbiter_node', 'arbiter.yaml'),
         node('perception_node', 'perception.yaml'),
-        node('follow_node', 'follow.yaml'),
+        Node(package='doggobot', executable='follow_node', name='follow_node',
+             parameters=[PathJoinSubstitution([share, 'config', follow_config])],
+             output='screen', emulate_tty=True),
         node('voice_bridge_node', 'bridge.yaml'),
     ])
