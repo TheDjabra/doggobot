@@ -78,6 +78,11 @@ class BridgeNode(Node):
         self.target = {'locked': False, 'status': 'UNKNOWN'}
         self.create_subscription(String, 'target_state', self._on_target, 10)
 
+        # Which primitive is running, so the phone shows what the car is doing
+        # rather than what the operator last asked for.
+        self.behavior = {'active': None}
+        self.create_subscription(String, 'behavior_state', self._on_behavior, 10)
+
         # NOT `self.clients`: rclpy.node.Node already defines `clients` as a
         # read-only property listing this node's service clients.
         self.client_count = 0
@@ -107,15 +112,35 @@ class BridgeNode(Node):
         except Exception:                                    # noqa: BLE001
             pass
 
+    def _on_behavior(self, msg):
+        try:
+            self.behavior = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            pass
+
     def publish_lock(self, engage):
         action = 'lock' if engage else 'release'
         self.lock_pub.publish(String(data=json.dumps({'action': action})))
         self.get_logger().info(f'target {action} from phone')
 
-    def publish_voice(self, text, source):
-        self.voice_pub.publish(String(data=json.dumps(
-            {'text': text, 'source': source})))
+    def publish_voice(self, text, source, alternatives=None):
+        payload = {'text': text, 'source': source}
+        if alternatives:
+            # Browser recognition returns ranked guesses. Passing them along lets
+            # behavior_node fall through to the next one when the top guess is
+            # not a command, which recovers a lot of near-misses in a noisy room.
+            payload['alternatives'] = alternatives
+        self.voice_pub.publish(String(data=json.dumps(payload)))
         self.get_logger().info(f'voice[{source}]: {text}')
+
+    def publish_action(self, action, seconds=None):
+        """A button press. Same topic as speech, so behavior_node stays the one
+        place that knows what the car can do."""
+        payload = {'action': action, 'source': 'phone-button'}
+        if seconds:
+            payload['seconds'] = seconds
+        self.voice_pub.publish(String(data=json.dumps(payload)))
+        self.get_logger().info(f'button: {action}')
 
 
 def build_app(node: BridgeNode) -> FastAPI:
@@ -171,6 +196,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                 while True:
                     await sock.send_text(json.dumps(
                         {'type': 'target', **node.target}))
+                    await sock.send_text(json.dumps(
+                        {'type': 'behavior', **node.behavior}))
                     await asyncio.sleep(0.2)
             except Exception:                                # noqa: BLE001
                 pass
@@ -188,7 +215,11 @@ def build_app(node: BridgeNode) -> FastAPI:
                     node.publish_estop(msg.get('engaged', True))
                 elif kind == 'voice':
                     node.publish_voice(msg.get('text', ''),
-                                       msg.get('source', 'speech'))
+                                       msg.get('source', 'phone-speech'),
+                                       msg.get('alternatives'))
+                elif kind == 'command':
+                    node.publish_action(msg.get('action', ''),
+                                        msg.get('seconds'))
                 elif kind == 'lock':
                     node.publish_lock(bool(msg.get('engage', True)))
                 elif kind == 'ping':

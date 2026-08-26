@@ -118,14 +118,26 @@ class BehaviorNode(Node):
 
         action = m.get('action')
         if not action:
-            text = (m.get('text') or '').strip()
-            if not text:
+            # Try the top transcript, then any lower-ranked alternatives the
+            # recogniser offered. A near-miss on the best guess is common in a
+            # noisy room and the second guess is often exactly right.
+            candidates = [(m.get('text') or '').strip()]
+            candidates += [a.strip() for a in (m.get('alternatives') or [])]
+            candidates = [c for c in candidates if c]
+            if not candidates:
                 return
-            action = self._match(text)
+            for i, text in enumerate(candidates):
+                action = self._match(text)
+                if action:
+                    note = '' if i == 0 else f' (alternative {i})'
+                    self.get_logger().info(f'"{text}" -> {action}{note}')
+                    break
             if not action:
-                self.get_logger().info(f'no primitive matched: {text!r}')
+                self.get_logger().info(
+                    f'no primitive matched: {candidates[0]!r}'
+                    + (f' (+{len(candidates) - 1} alternatives)'
+                       if len(candidates) > 1 else ''))
                 return
-            self.get_logger().info(f'"{text}" -> {action}')
 
         seconds = m.get('seconds')
         self._start(action, float(seconds) if seconds else None)

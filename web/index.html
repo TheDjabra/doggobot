@@ -221,10 +221,16 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
 
         <h2>Primitives</h2>
         <div class="row">
-          <button class="btn" disabled>Circle</button>
-          <button class="btn" disabled>Figure-8</button>
-          <button class="btn" disabled>Reverse</button>
-          <button class="btn" disabled>Wait</button>
+          <button class="btn prim" data-act="forward">Forward</button>
+          <button class="btn prim" data-act="reverse">Reverse</button>
+          <button class="btn prim" data-act="circle_left">Circle L</button>
+          <button class="btn prim" data-act="circle_right">Circle R</button>
+          <button class="btn prim" data-act="wait">Wait</button>
+          <button class="btn prim" data-act="stop">Stop</button>
+        </div>
+        <div class="line" style="font-size:11px;letter-spacing:var(--track);
+             color:var(--c-ink-faint);display:flex;justify-content:space-between">
+          <span>running</span><b id="prim">--</b>
         </div>
         <p class="note">Not implemented yet. These will publish to /behavior_cmd,
           which the arbiter ranks below manual control, so a running primitive can
@@ -242,12 +248,17 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     <h2>Push to talk</h2>
     <button id="ptt">HOLD TO TALK</button>
     <div class="readout" id="transcript">no speech captured yet</div>
-    <p class="note">
-      Skeleton only. The button, the transport, and the /voice_cmd publisher all
-      work; speech recognition is not attached yet. Hold-to-talk is deliberate,
-      not a placeholder: continuous listening on Android Chrome duplicates
-      results and restarts unpredictably, and a held button is also a safety gate
-      against the car acting on overheard speech.
+    <p class="note" id="vnote">
+      Hold to talk, release to send. Push-to-talk is deliberate: continuous
+      listening on Android Chrome duplicates results and restarts unpredictably,
+      and a held button is a safety gate against the car acting on overheard
+      speech. Recognition runs in this browser, so no audio ever reaches the car,
+      only the recognised words.
+    </p>
+    <h2>Vocabulary</h2>
+    <p class="note" style="color:var(--c-ink-dim)">
+      forward &middot; reverse / back &middot; circle left &middot; circle right
+      &middot; wait &middot; stop &middot; follow
     </p>
   </section>
 </main>
@@ -277,6 +288,9 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
       const m = JSON.parse(e.data);
       if (m.type === 'pong') $('rtt').textContent = `${Math.round(performance.now() - m.t)} ms`;
       else if (m.type === 'target') paintTarget(m);
+      else if (m.type === 'behavior') {
+        $('prim').textContent = m.active || '--';
+      }
     };
   }
   function send(o) {
@@ -426,19 +440,60 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
   $('tab-drive').addEventListener('click', () => tab('drive'));
   $('tab-voice').addEventListener('click', () => tab('voice'));
 
-  // ── push to talk (skeleton) ──────────────────────────────────────────
-  const ptt = $('ptt');
-  ptt.addEventListener('pointerdown', e => {
-    e.preventDefault(); ptt.classList.add('held');
-    $('transcript').textContent = 'listening... (recognition not attached yet)';
+  // ── primitive buttons ────────────────────────────────────────────────
+  // Buttons and speech converge on the same command path, so the car cannot
+  // behave differently depending on how it was told.
+  document.querySelectorAll('.prim').forEach(b => {
+    b.addEventListener('click', () => send({ type: 'command', action: b.dataset.act }));
   });
-  const release = e => {
-    e.preventDefault(); ptt.classList.remove('held');
-    $('transcript').textContent = 'released. nothing recognised yet - this is where the transcript will appear.';
-    send({ type: 'voice', text: '', source: 'ptt-skeleton' });
-  };
-  ptt.addEventListener('pointerup', release);
-  ptt.addEventListener('pointercancel', release);
+
+  // ── push to talk: real browser speech recognition ────────────────────
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const ptt = $('ptt'), tx = $('transcript');
+  let rec = null, holding = false;
+
+  if (!SR) {
+    ptt.disabled = true;
+    ptt.textContent = 'SPEECH UNSUPPORTED';
+    tx.textContent = 'This browser has no Web Speech API. Use Chrome on Android. ' +
+      'It also requires an https origin, which is why the car is served over Tailscale.';
+  } else {
+    rec = new SR();
+    rec.lang = 'en-US';
+    rec.continuous = false;      // one utterance per hold; continuous is a bug farm
+    rec.interimResults = true;   // show words as they form, for feedback only
+    rec.maxAlternatives = 3;     // send the ranked guesses; the car tries each
+
+    rec.onresult = e => {
+      const r = e.results[e.results.length - 1];
+      if (!r.isFinal) { tx.textContent = r[0].transcript + ' ...'; return; }
+      const alts = [];
+      for (let i = 0; i < r.length; i++) alts.push(r[i].transcript.trim());
+      tx.textContent = alts[0] + (alts.length > 1 ? `   (also: ${alts.slice(1).join(', ')})` : '');
+      send({ type: 'voice', text: alts[0], alternatives: alts.slice(1), source: 'phone-speech' });
+    };
+    rec.onerror = ev => {
+      tx.textContent = ev.error === 'not-allowed'
+        ? 'microphone permission denied - allow it in site settings'
+        : `recognition error: ${ev.error}`;
+    };
+    rec.onend = () => { if (holding) { try { rec.start(); } catch (_) {} } };
+
+    const grab = e => {
+      e.preventDefault();
+      holding = true; ptt.classList.add('held');
+      tx.textContent = 'listening...';
+      try { rec.start(); } catch (_) {}
+    };
+    const let_go = e => {
+      e.preventDefault();
+      holding = false; ptt.classList.remove('held');
+      try { rec.stop(); } catch (_) {}
+    };
+    ptt.addEventListener('pointerdown', grab);
+    ptt.addEventListener('pointerup', let_go);
+    ptt.addEventListener('pointercancel', let_go);
+  }
 
   // Screen sleeping mid-drive would freeze the stream. Ask to stay awake.
   if ('wakeLock' in navigator) {
