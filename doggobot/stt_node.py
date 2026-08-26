@@ -41,7 +41,7 @@ from std_msgs.msg import String
 PHRASES = [
     # Wake word. The mic listens continuously and the rest of this vocabulary is
     # ordinary English, so behavior_node requires this prefix on mic commands.
-    'doggo',
+    'rex',
     'stop', 'halt',
     'wait', 'hold', 'stay', 'freeze',
     'forward', 'go forward', 'go straight', 'ahead',

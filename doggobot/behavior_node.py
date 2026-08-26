@@ -6,7 +6,7 @@ the whole point: "circle left" must cancel "forward" rather than blending with
 it.
 
 Commands from the on-robot microphone must be prefixed with the wake word
-("doggo forward"), because that mic listens continuously and the vocabulary is
+("rex forward"), because that mic listens continuously and the vocabulary is
 ordinary English. Phone speech does not need it: holding the talk button is the
 gate. See `wake_word_sources`.
 
@@ -84,7 +84,7 @@ class BehaviorNode(Node):
         # 2026-08-26, when overheard speech matched "back" and reversed the car
         # mid-test. The phone does not need this because holding the talk button
         # is already a deliberate act, so the requirement is per-source.
-        self.declare_parameter('wake_word', 'doggo')
+        self.declare_parameter('wake_word', 'rex')
         self.declare_parameter('wake_word_sources', ['onboard-mic'])
 
         g = self.get_parameter

@@ -22,12 +22,12 @@ behavior_node:
 
     # The on-robot mic listens continuously and the vocabulary is ordinary
     # English, so mic commands must be addressed to the car by name:
-    #   "doggo forward"   "doggo circle left"   "doggo stop"
+    #   "rex forward"   "rex circle left"   "rex stop"
     # Observed 2026-08-26: without this, overheard conversation containing "back"
     # reversed the car mid-test.
     #
     # Phone speech is deliberately NOT in this list: holding the talk button is
     # already a deliberate act, and requiring the name there would only add
     # friction to the path that is already gated.
-    wake_word: "doggo"
+    wake_word: "rex"
     wake_word_sources: ["onboard-mic"]
