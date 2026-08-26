@@ -454,3 +454,64 @@ cause, because it changes what fixes it.
 
 So the pan servo is not only a reacquisition feature; it is what makes following viable in a
 confined space. That reframing should carry into the mount design.
+
+### behavior_node and on-robot speech (2026-08-26)
+
+**Primitives**: forward, reverse, circle_left, circle_right, wait, stop, plus follow. Every
+moving primitive is **time-bounded** by default (3 s, circles 6 s, cap 15 s). "Forward until
+further notice" is how a car ends up in a wall when a link drops; a duration makes every command
+self-limiting. Same reasoning as fall-2024 Team 12 packing a timeout into their messages.
+
+**An architectural fix went in with it.** `follow_node` was publishing `/behavior_cmd`, and so
+would a behaviour node: two publishers on one command topic, which is exactly the race the
+arbiter exists to prevent, one layer up. Resolved by making **follow a primitive**:
+`follow_node` moved to `/follow_cmd` and `behavior_node` is the sole owner of `/behavior_cmd`,
+relaying follow when follow is the active mode. Mutual exclusion is now structural, and
+commanding any other primitive releases the target lock so the car is never simultaneously
+chasing someone and driving a canned trajectory.
+
+Verified on the stand: circle left `z=-0.7`, circle right `z=+0.7`, forward `z=0.0`, matching
+the physical steering polarity confirmed earlier.
+
+**Keyword matching lives in `behavior_node`, not the phone**, because both input paths publish
+to `/voice_cmd`. The vocabulary sits next to the primitives it names, so neither path can drift
+from what the car can do.
+
+#### Speech: Vosk, offline, on the Samson Go Mic
+
+Chosen over faster-whisper (1-2 s per utterance on a Pi 5 CPU, unusable for "stop"), cloud
+recognition (reintroduces the network dependency the on-robot path exists to avoid), and
+Pocketsphinx (worse at everything here).
+
+Setup notes, each of which cost time:
+
+- **The container could not see the mic** until `docker restart Doggobot`. The `/dev` view was
+  snapshotted before the mic was plugged in. Same desync already documented for other devices.
+- **The Vosk model must live under the bind mount** (`models/vosk-small-en`), not
+  `/home/pi/models`, or the container cannot reach it. Gitignored; `tools/get_vosk_model.sh`
+  fetches it.
+- **ALSA devices are exclusive**: `arecord` fails while `stt_node` holds the mic, which is a
+  useful signal rather than an error.
+- The node negotiates audio format and falls back to the device's native rate with software
+  downmix and resample, because USB mics frequently refuse 16 kHz mono.
+
+**Diagnosis lesson.** Several recordings decoded to nothing and I began attributing it to
+placement and noise. The actual cause was an empty room: the recordings were taken while nobody
+was there. A noise-floor measurement (RMS 2786 with nobody speaking, ~8% of full scale) was real
+and worth having, but the conclusion drawn from comparing it to a "speaking" test was unfounded
+because that test had no speech in it either. **Confirm the experiment ran before interpreting
+the result.**
+
+**Cardioid mode is required.** In omni the mic hears the whole room including the Pi's cooler
+inches away. Switched to cardioid, recognition went to six of six commands correct:
+`'reverse' 'stop' 'circle left' 'stop' 'go forward' 'stop'`. Also note peak hit 32767 (clipping)
+when speaking close; back off or reduce gain, since clipped speech loses the detail a recogniser
+needs.
+
+**Bug found by testing: Vosk's constrained grammar is a WORD list, not a phrase list.** Given
+"back up" in the vocabulary it returns bare `"back"`, which matched none of the full phrases in
+the keyword table. Single-word forms added. This is the sort of thing that only appears when a
+real person says a real word.
+
+End to end confirmed: speaking "circle left" ran the circle for 6 s and "go forward" ran forward
+for 3 s, with nothing typed.
