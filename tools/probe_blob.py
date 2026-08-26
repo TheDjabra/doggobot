@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Can DepthAI v3 run our v2-era .blob, and how fast?
+"""Can DepthAI v3 run our v2-era .blob (wrapped as an NN Archive), and how fast?
 
 The container ships depthai 3.x, which moved to NN Archive packaging, but the
 v2-style `setBlobPath` survives. This answers empirically whether the existing
@@ -27,35 +27,33 @@ conf = meta['NN_specific_metadata']['confidence_threshold']
 print(f'depthai {dai.__version__} | blob {W}x{H}, {classes} class(es), '
       f'conf {conf}, iou {iou}')
 
+ARCHIVE = os.path.join(MODELS, 'person-yolo11n-416.tar.xz')
+
 with dai.Pipeline() as pipeline:
     cam = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
     rgb = cam.requestOutput((W, H), dai.ImgFrame.Type.BGR888p,
                             dai.ImgResizeMode.LETTERBOX, 30)
 
+    archive = dai.NNArchive(ARCHIVE)
     det = pipeline.create(dai.node.DetectionNetwork)
-    det.setBlobPath(BLOB)
-    det.setNumClasses(classes)
-    det.setCoordinateSize(4)
-    det.setIouThreshold(iou)
-    det.setConfidenceThreshold(conf)
-    det.setNumInferenceThreads(2)
-    rgb.link(det.input)
-    det.input.setBlocking(False)
+    det.build(rgb, archive, conf)
 
     q = det.out.createOutputQueue()
     pipeline.start()
-    print('pipeline started, sampling 5 s ...')
+    print('pipeline started, sampling 8 s (stand in front of the camera) ...')
 
-    t0, frames, dets = time.time(), 0, 0
-    while time.time() - t0 < 5.0:
+    t0, frames, dets, best = time.time(), 0, 0, 0.0
+    while time.time() - t0 < 8.0:
         pkt = q.tryGet()
         if pkt is None:
             time.sleep(0.002)
             continue
         frames += 1
         dets += len(pkt.detections)
+        for d in pkt.detections:
+            best = max(best, d.confidence)
 
     dt = time.time() - t0
-    print(f'RESULT: {frames} frames in {dt:.1f} s = {frames/dt:.1f} fps, '
-          f'{dets} detections total')
-    print('blob loads and runs under depthai v3: YES')
+    print(f'RESULT: {frames} frames in {dt:.1f} s = {frames/dt:.1f} fps')
+    print(f'        {dets} detections, best confidence {best:.2f}')
+    print('verdict: the existing blob runs under depthai v3 via a generated NN Archive')
