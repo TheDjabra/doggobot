@@ -580,3 +580,43 @@ Google's recognition is also better than a 68 MB offline model.
 That reframes the two paths honestly. **The on-board mic's value is that it needs no phone and no
 network, not that it is better.** Phone is the primary input; the mic is the one that still works
 when the phone is in a pocket or there is no connectivity.
+
+### Boot to driving with no terminal (2026-08-26)
+
+`deploy/doggobot.service` starts the container and the full stack at power-on
+(`tools/install_service.sh` installs it). `tailscale serve` already persists across reboots, so
+the URL is live as soon as the nodes are. Logs move to journald: `journalctl -u doggobot -f`.
+
+**The stack starting is NOT the car being live.** Magnus asked for an explicit gate, which is the
+right call and better than what I first built:
+
+**Arm gate.** The arbiter has a master enable, `/arm`, defaulting **off** at power-on. While
+disarmed it publishes zeros regardless of what any source asks for. Verified: disarmed + forward
+gives 0.0, armed + forward gives 0.365, and disarming mid-motion returns to 0.0 immediately.
+
+Reasoning for a deliberate tap rather than arming on page load: a page can open by accident, be
+restored by the browser, or sit in a background tab, and none of those should be able to move a
+car. The bridge also **disarms when the last client disconnects**, so walking away leaves the car
+inert rather than idle, and the page **disarms its UI when the link drops**, since it reflects
+the arbiter's reported state rather than the last tap.
+
+### The always-listening mic was driving the car
+
+Found while testing the arm gate: a `forward` command produced **-0.365**. Not a sign error. The
+log showed `"back" -> reverse` and `"back go" -> reverse`: **the on-robot microphone had
+overheard talking and executed it.**
+
+This is a design problem rather than a glitch. The command vocabulary is ordinary English (stop,
+back, forward, wait, hold, stay, left, right, follow) and the mic listens continuously, so anyone
+having a conversation near the car can drive it. The phone path never had this problem because
+push-to-talk is itself the gate.
+
+Fix: **a wake word, required per-source.** Mic commands must address the car by name
+("doggo forward"); phone speech does not need it, because holding the button is already
+deliberate and adding friction to the already-gated path buys nothing. Picovoice's free wake-word
+tier was discontinued, so this is implemented as a prefix inside the existing constrained
+grammar, which costs nothing and cannot be triggered by a word outside the vocabulary. The wake
+word is accepted anywhere in the utterance, not only at the start, because recognisers routinely
+prepend filler.
+
+Verified per-source: mic "forward" ignored, mic "doggo forward" runs, phone "circle left" runs.
