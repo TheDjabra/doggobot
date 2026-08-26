@@ -309,3 +309,35 @@ it re-enumerates between `Movidius MyriadX` (unbooted, `03e7:2485`) and `Luxonis
 plus motor, not full peripheral load. Repeat once the LiDAR node runs.
 
 This demotes the powered USB hub from necessary to headroom.
+
+### Full peripheral load: LiDAR + camera + motor (2026-08-26)
+
+The LD06 runs from the class framework's own driver, not the full `all_nodes.launch.py` the
+LiDAR assignment used (that launch also starts `lane_guidance_node`, which publishes `/cmd_vel`
+and would collide with the arbiter). Just the driver:
+
+    ros2 launch ldlidar ldlidar.launch.py serial_port:=/dev/ttyUSB0
+
+`tools/env.sh` already sources that workspace. Publishes `/scan` at exactly 10 Hz.
+
+Repeated the power stress test with the LiDAR streaming as well:
+
+| Measure | Camera only | Camera + LiDAR |
+|---|---|---|
+| perception fps | 12.3 | **12.3** |
+| `/scan` | n/a | **10.000 Hz held** |
+| `get_throttled` | 0x0 | **0x0** |
+| temperature | 53.2 C | 53.8 C |
+| USB resets | none | **none** |
+
+The LiDAR (direct on a Pi USB 2.0 port, ~2 KB/s) costs nothing measurable. **The powered USB hub
+is optional headroom, not a requirement.** Tested in the current wiring deliberately: testing the
+hub first would have proven nothing about whether it was needed, and the un-hubbed configuration
+is also what exists if the hub ever fails in the field.
+
+**Lock-on state machine validated under load.** This run's tracker statuses:
+`NEW 9, TRACKED 666, LOST 187, REMOVED 2`, three distinct tracklet ids. The target was lost and
+re-acquired repeatedly out to 2474 mm, so the design behaved as intended: TRACKED while visible,
+LOST as a grace period, REMOVED on real departure, and a **new id on re-entry** rather than a
+silently reused one, which is the `UNIQUE_ID` policy making "have I lost my target"
+unambiguous. REMOVED is the signal the pan-servo sweep will trigger on.
