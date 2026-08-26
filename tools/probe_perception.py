@@ -46,11 +46,36 @@ with dai.Pipeline() as pipeline:
     det.build(cam, stereo, archive, fps=float(os.environ.get('NN_FPS', '20')))
     det.setConfidenceThreshold(CONF)
 
+    TRACKER = os.environ.get('TRACKER', 'color')   # color | imageless | none
+
+    if TRACKER == 'none':
+        q = det.out.createOutputQueue()
+        pipeline.start()
+        print(f'archive={os.path.basename(ARCHIVE)} conf={CONF} TRACKER=none  '
+              f'sampling {SECONDS:.0f} s')
+        t0, n, zs = time.time(), 0, []
+        while time.time() - t0 < SECONDS:
+            pkt = q.tryGet()
+            if pkt is None:
+                time.sleep(0.002); continue
+            n += 1
+            for d in pkt.detections:
+                zs.append(d.spatialCoordinates.z)
+        dt = time.time() - t0
+        print(f'\nRESULT: {n} frames in {dt:.1f} s = {n/dt:.1f} fps  '
+              f'(spatial detection only, no tracker)')
+        if zs:
+            print(f'        depth {min(zs):.0f} to {max(zs):.0f} mm '
+                  f'over {len(zs)} detections')
+        raise SystemExit(0)
+
     tracker = pipeline.create(dai.node.ObjectTracker)
     # Colour histogram helps re-associate a target after brief occlusion, which
     # is the whole point of lock-on. UNIQUE_ID means a person who leaves and
     # returns gets a NEW id, so "did I lose my target" stays unambiguous.
-    tracker.setTrackerType(dai.TrackerType.ZERO_TERM_COLOR_HISTOGRAM)
+    tracker.setTrackerType(dai.TrackerType.ZERO_TERM_COLOR_HISTOGRAM
+                           if TRACKER == 'color'
+                           else dai.TrackerType.ZERO_TERM_IMAGELESS)
     tracker.setTrackerIdAssignmentPolicy(dai.TrackerIdAssignmentPolicy.UNIQUE_ID)
     tracker.setMaxObjectsToTrack(10)
 
