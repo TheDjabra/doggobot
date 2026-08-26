@@ -22,7 +22,12 @@ import depthai as dai
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MODELS = os.path.join(os.path.dirname(HERE), 'models')
-BLOB = os.path.join(MODELS, 'person-yolo11n_openvino_2022.1_6shave.blob')
+# 5 shaves, not 6. With StereoDepth, ImageManip, SpatialLocationCalculator and
+# ObjectTracker in the pipeline, only 5 SHAVE cores are left for the network, and
+# a 6-shave blob refuses to start. Recompiled from the OpenVINO IR with
+# blobconverter(shaves=5). Override for experiments.
+BLOB = os.path.join(MODELS, os.environ.get(
+    'BLOB_NAME', 'person-yolo11n_openvino_2022.1_5shave.blob'))
 META = os.path.join(MODELS, 'person-yolo11n.json')
 OUT = os.path.join(MODELS, os.environ.get('ARCHIVE_NAME', 'person-yolo11n-416.tar.xz'))
 
