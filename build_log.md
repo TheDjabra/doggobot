@@ -341,3 +341,32 @@ re-acquired repeatedly out to 2474 mm, so the design behaved as intended: TRACKE
 LOST as a grace period, REMOVED on real departure, and a **new id on re-entry** rather than a
 silently reused one, which is the `UNIQUE_ID` policy making "have I lost my target"
 unambiguous. REMOVED is the signal the pan-servo sweep will trigger on.
+
+### perception_node (2026-08-26)
+
+Wraps the proven pipeline as a ROS2 node. Publishes `/target_state` (JSON String) at the
+pipeline rate; subscribes `/target_lock` for `{"action":"lock"|"release"}`.
+
+    {"locked": true, "id": 0, "status": "TRACKED",
+     "x": -0.531, "y": -0.007, "z_mm": 449, "conf": 0.72, "age": 386, "fps": 12.3}
+
+**`x` is an error term, not a coordinate.** Centre-relative, -1..1, so 0 means centred. The
+follow controller then closes a PD loop over two numbers and no frame geometry leaks into it.
+
+**Lock-on, not identity.** On `lock` the node picks the highest-confidence tracklet in frame and
+follows that id until released or until the tracker reports REMOVED. Recognising a *specific*
+person is face re-identification, far more fragile outdoors, and buys nothing for the demo.
+
+**The camera is allowed to disappear.** The pipeline is rebuilt in a loop rather than taking the
+node down, because the OAK-D re-enumerates on the USB bus whenever a pipeline starts or stops
+and a brownout would look the same. `CAMERA_DOWN` is published while it is gone.
+
+Validated on the car: lock acquired on command, same tracklet id held across hundreds of frames,
+LOST appearing as a grace period without dropping the lock, release returning to `NO_TARGET`,
+12.3 fps throughout.
+
+**Observation worth acting on**: at `z_mm` ~450 confidence sat at 0.57-0.72, against 0.94 at
+conversational distance. That is the close-range vertical-framing problem appearing as a
+measurement for the first time: at half a metre the camera crops the body and the 0.5 threshold
+has little margin. This is the number that should set the follow standoff, so measure where
+confidence peaks by walking a range rather than picking 1.5 m out of caution.
