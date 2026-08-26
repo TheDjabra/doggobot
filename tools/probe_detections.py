@@ -15,7 +15,7 @@ import time
 import depthai as dai
 
 MODELS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'models')
-ARCHIVE = os.path.join(MODELS, 'person-yolo11n-416.tar.xz')
+ARCHIVE = os.path.join(MODELS, os.environ.get('ARCHIVE_NAME', 'person-yolo11n-416.tar.xz'))
 CONF = float(sys.argv[1]) if len(sys.argv) > 1 else 0.5
 
 with dai.Pipeline() as pipeline:
