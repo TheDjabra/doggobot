@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Follow controller: /target_state -> /behavior_cmd.
+"""Follow controller: /target_state -> /follow_cmd.
 
 Two independent loops over two numbers:
 
@@ -134,7 +134,10 @@ class FollowNode(Node):
         self.last_steer = 0.0
         self.state = None
 
-        self.cmd_pub = self.create_publisher(Twist, 'behavior_cmd', 10)
+        # NOT /behavior_cmd: behavior_node owns that topic and relays this one
+        # when follow is the active primitive. Two publishers on one command
+        # topic is the same race the arbiter exists to prevent, one layer up.
+        self.cmd_pub = self.create_publisher(Twist, 'follow_cmd', 10)
         self.create_subscription(String, 'target_state', self._on_target, 10)
 
         # A watchdog so that perception dying is not mistaken for "target

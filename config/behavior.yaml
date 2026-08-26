@@ -1,0 +1,20 @@
+behavior_node:
+  ros__parameters:
+    publish_hz: 20.0
+
+    # Just above the measured motor floor of 0.13. Primitives are demo motions,
+    # not lap driving, and slow reads as deliberate rather than broken.
+    cruise_throttle: 0.16
+    reverse_throttle: 0.15
+
+    # Held steering for circles. 0.7 matches the follow controller's ceiling and
+    # sits inside the arbiter's 0.8 clamp, so a circle is the tightest arc the
+    # car can actually drive.
+    circle_steer: 0.7
+
+    # Every moving primitive is time-bounded. "Forward until further notice" is
+    # how a car ends up in a wall when a link drops. A command may override with
+    # {"seconds": N}, capped at max_seconds.
+    default_seconds: 3.0
+    circle_seconds: 6.0
+    max_seconds: 15.0

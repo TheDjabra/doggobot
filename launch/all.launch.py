@@ -7,7 +7,8 @@ the phone bridge and is bench-only for that reason.
     vesc_twist_node     class actuator
     arbiter_node        sole /cmd_vel publisher
     perception_node     /target_state
-    follow_node         /behavior_cmd
+    follow_node         /follow_cmd
+    behavior_node       /behavior_cmd  (sole owner; relays follow_cmd in follow mode)
     voice_bridge_node   phone: sticks, kill switch, (later) speech
 
 Arbiter priority means the phone always wins: e-stop beats everything, and the
@@ -52,5 +53,6 @@ def generate_launch_description():
         Node(package='doggobot', executable='follow_node', name='follow_node',
              parameters=[PathJoinSubstitution([share, 'config', follow_config])],
              output='screen', emulate_tty=True),
+        node('behavior_node', 'behavior.yaml'),
         node('voice_bridge_node', 'bridge.yaml'),
     ])

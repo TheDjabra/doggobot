@@ -31,6 +31,7 @@ setup(
             'voice_bridge_node = doggobot.voice_bridge_node:main',
             'perception_node = doggobot.perception_node:main',
             'follow_node = doggobot.follow_node:main',
+            'behavior_node = doggobot.behavior_node:main',
         ],
     },
 )
