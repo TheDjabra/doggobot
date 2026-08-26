@@ -41,7 +41,9 @@ with dai.Pipeline() as pipeline:
     stereo.initialConfig.postProcessing.median = dai.MedianFilter.MEDIAN_OFF
 
     det = pipeline.create(dai.node.SpatialDetectionNetwork)
-    det.build(cam, stereo, archive)
+    # The fps argument is NOT optional in practice. Without it the node requests
+    # camera output at a default that collapses the pipeline to about 1 fps.
+    det.build(cam, stereo, archive, fps=float(os.environ.get('NN_FPS', '20')))
     det.setConfidenceThreshold(CONF)
 
     tracker = pipeline.create(dai.node.ObjectTracker)
