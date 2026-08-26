@@ -620,3 +620,21 @@ word is accepted anywhere in the utterance, not only at the start, because recog
 prepend filler.
 
 Verified per-source: mic "forward" ignored, mic "doggo forward" runs, phone "circle left" runs.
+
+### Wake word: doggo -> rex -> atlas (2026-08-26)
+
+Settled on **"atlas"**. Two syllables deliberately: a longer word gives the recogniser more
+acoustic content than a one-syllable name, and "rex" additionally rhymes with a family of common
+words (wrecks, checks, next, text). Both "doggo" and "rex" were tested working first, so this is
+robustness rather than a fix.
+
+Known residual risk, worth recording rather than forgetting: **"atlas" is also a Boston Dynamics
+robot**, so it does come up in robotics conversation. Far lower risk than "rover" would have been
+in the same room, but if phantom commands ever appear in the log, suspect that first.
+
+**A check that did not work, recorded so it is not repeated.** I tried to verify candidate wake
+words against the model's lexicon by building a grammar per word and watching for an
+out-of-vocabulary warning. Vosk accepted every candidate without complaint, including invented
+words, so the test proved nothing. The model ships its vocabulary compiled into `Gr.fst` with no
+plain word list to grep. **The only reliable check is saying the word and seeing what comes
+back.**

@@ -30,9 +30,35 @@ Detail in [docs/architecture.md](docs/architecture.md). Hardware in
 
 ## Status
 
-Drivable from a phone. `arbiter_node` and `voice_bridge_node` are implemented and validated on
-hardware, including the deadman and e-stop paths. Perception, behaviour primitives, the
-sequencing executor, and speech recognition are not built yet.
+Voice-commanded and following, validated on hardware. Six nodes plus the class actuator, all
+started at power-on by systemd.
+
+| Node | Does |
+|---|---|
+| `arbiter_node` | sole `/cmd_vel` publisher: arm gate, e-stop, priority, deadman, clamping |
+| `perception_node` | camera -> a single locked target on `/target_state`, ~12 fps |
+| `follow_node` | PD on bounding-box offset and depth -> `/follow_cmd` |
+| `behavior_node` | primitives and the vocabulary; sole owner of `/behavior_cmd` |
+| `stt_node` | on-board mic -> `/voice_cmd`, offline Vosk |
+| `voice_bridge_node` | phone app: sticks, kill switch, arm, buttons, browser speech, telemetry |
+
+**Not built yet**: command sequencing, conditional actions, colour detection (the three that the
+proposal's mission statement needs), the LiDAR safety node, the pan servo, and the LLM tier.
+
+## Using it
+
+Power on the car, open the app, tap **ARM**. Nothing responds until armed.
+
+Speak to the on-board microphone by name, because it listens continuously:
+
+> "atlas forward" · "atlas circle left" · "atlas stop"
+
+Or hold push-to-talk in the app and say the command without the name, because holding the button
+is already the gate:
+
+> "circle left" · "go forward" · "stop"
+
+Full startup and troubleshooting in [docs/runbook.md](docs/runbook.md).
 
 ## Layout
 
