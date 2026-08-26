@@ -24,7 +24,11 @@ PHRASES = ['stop', 'halt', 'wait', 'hold', 'stay', 'freeze',
            'circle left', 'circle to the left',
            'follow', 'follow me', 'come here']
 
-print(f'recording {SECS}s from plughw:2,0 - SPEAK NOW')
+import time
+for n in (3, 2, 1):
+    print(f'  {n}...', flush=True)
+    time.sleep(1)
+print(f'>>> RECORDING {SECS}s - SPEAK NOW <<<', flush=True)
 subprocess.run(['arecord', '-D', 'plughw:2,0', '-f', 'S16_LE', '-r', '16000',
                 '-c', '1', '-d', SECS, WAV],
                check=True, stderr=subprocess.DEVNULL)
@@ -32,8 +36,10 @@ subprocess.run(['arecord', '-D', 'plughw:2,0', '-f', 'S16_LE', '-r', '16000',
 import audioop
 w = wave.open(WAV)
 raw = w.readframes(w.getnframes())
-print(f'captured {len(raw)} bytes, peak amplitude {audioop.max(raw, 2)} '
-      f'(under ~500 means effectively silence)')
+peak, rms = audioop.max(raw, 2), audioop.rms(raw, 2)
+print(f'captured {len(raw)} bytes  peak={peak}  rms={rms}')
+print('  rms under ~200 = effectively silence; a high peak with low rms is a '
+      'click or thump, not speech')
 
 from vosk import KaldiRecognizer, Model, SetLogLevel
 SetLogLevel(-1)
@@ -43,6 +49,14 @@ for label, rec in (
         ('grammar-constrained', KaldiRecognizer(model, 16000,
                                                 json.dumps(PHRASES + ['[unk]']))),
         ('free-form', KaldiRecognizer(model, 16000))):
-    rec.AcceptWaveform(raw)
-    text = json.loads(rec.FinalResult()).get('text', '')
-    print(f'  {label:20} -> {text!r}')
+    # Vosk expects a stream of chunks, not one enormous buffer.
+    partials = []
+    for i in range(0, len(raw), 4000):
+        if rec.AcceptWaveform(raw[i:i + 4000]):
+            t = json.loads(rec.Result()).get('text', '')
+            if t:
+                partials.append(t)
+    t = json.loads(rec.FinalResult()).get('text', '')
+    if t:
+        partials.append(t)
+    print(f'  {label:20} -> {" | ".join(partials)!r}')
