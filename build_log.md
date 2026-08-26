@@ -421,3 +421,36 @@ also when the 1000 mm standoff gets refined against where detector confidence ac
 0.8 s apart, producing pairs that looked like control bugs (a positive throttle next to a
 too-close distance) and were pure sampling skew. The controller now logs its inputs and outputs
 from the same message, which is the only trustworthy way to read a control loop.
+
+### GROUND TEST: the follow loop works (2026-08-26)
+
+First closed-loop run with the wheels on the floor, using `all.launch.py` with
+`follow_firstrun.yaml` (max_throttle 0.15, reverse off, 200 mm deadband) and the phone in hand
+for the kill switch. **It follows.** Steering polarity correct, no runaway, no oscillation
+severe enough to note.
+
+Also fixed just before the run, and it was a real bug rather than a quirk: on REMOVED,
+`perception_node` cleared the locked id but left the lock REQUEST standing, so the next frame
+grabbed the highest-confidence person in view. Stepping out of frame and returning silently
+handed the lock to someone else. Now REMOVED drops the lock entirely (`relock_on_loss: false`)
+and the operator is told. The parameter exists because the pan-servo sweep will want deliberate
+re-locking later, which is different: a sweep re-locks having actively searched, rather than
+accepting whoever wandered past.
+
+Phone app gained a **FOLLOW/RELEASE** button and a live target panel (status, id, distance,
+confidence at 5 Hz). The button reflects what the ROBOT reports rather than what was last
+tapped, so a dropped lock turns it off by itself and the two can never silently disagree.
+
+**Known limitation, confirmed in a small room: turning radius.** Worth being precise about the
+cause, because it changes what fixes it.
+
+- Raising the steering gain has little headroom left. `max_steer` is 0.7 against the arbiter's
+  0.8 clamp, and 0.8 is the calibrated mechanical limit of the servo.
+- The car's minimum turning radius is Ackermann geometry. No gain changes it.
+- **What the pan servo actually fixes is not the radius, it is losing the target while turning.**
+  The camera currently points where the chassis points, so a tight turn sweeps the target out of
+  frame exactly when tracking matters most. With the camera panning independently the car can
+  take a wide, achievable arc while keeping the target centred throughout.
+
+So the pan servo is not only a reacquisition feature; it is what makes following viable in a
+confined space. That reframing should carry into the mount design.
