@@ -70,6 +70,10 @@ class SttNode(Node):
 
         self.audio = queue.Queue()
         self.running = True
+        # Set when the device refuses the requested format and we fall back.
+        self.in_rate = self.rate
+        self.in_channels = 1
+        self._resample_state = None
 
     # -- audio ----------------------------------------------------------------
 
@@ -77,6 +81,47 @@ class SttNode(Node):
         if status:
             self.get_logger().warn(f'audio: {status}')
         self.audio.put(bytes(indata))
+
+    def _to_vosk(self, data):
+        """Convert whatever the device gave us into mono 16 kHz PCM.
+
+        USB mics frequently refuse 16 kHz mono and only offer their native rate
+        and channel count. Rather than fail, capture what the device wants and
+        convert here: downmix to mono, then resample. `audioop.ratecv` carries
+        state between chunks, which matters or every block boundary clicks.
+        """
+        import audioop
+        if self.in_channels == 2:
+            data = audioop.tomono(data, 2, 0.5, 0.5)
+        if self.in_rate != self.rate:
+            data, self._resample_state = audioop.ratecv(
+                data, 2, 1, self.in_rate, self.rate, self._resample_state)
+        return data
+
+    def _open_stream(self, sd, dev):
+        """Open at the rate Vosk wants, or fall back to the device's own."""
+        try:
+            stream = sd.RawInputStream(
+                samplerate=self.rate, blocksize=8000, device=dev,
+                dtype='int16', channels=1, callback=self._cb)
+            self.in_rate, self.in_channels = self.rate, 1
+            self.get_logger().info(f'audio: {self.rate} Hz mono, native')
+            return stream
+        except Exception as e:                               # noqa: BLE001
+            self.get_logger().warn(f'{self.rate} Hz mono refused ({e}); '
+                                   'falling back to device native')
+
+        info = sd.query_devices(dev, 'input')
+        self.in_rate = int(info['default_samplerate'])
+        self.in_channels = min(2, int(info['max_input_channels']))
+        stream = sd.RawInputStream(
+            samplerate=self.in_rate, blocksize=int(self.in_rate / 2),
+            device=dev, dtype='int16', channels=self.in_channels,
+            callback=self._cb)
+        self.get_logger().info(
+            f'audio: {self.in_rate} Hz x{self.in_channels}, converting to '
+            f'{self.rate} Hz mono in software')
+        return stream
 
     def listen(self):
         import sounddevice as sd
@@ -104,15 +149,14 @@ class SttNode(Node):
         if self.device:
             dev = int(self.device) if self.device.isdigit() else self.device
 
-        with sd.RawInputStream(samplerate=self.rate, blocksize=8000,
-                               device=dev, dtype='int16', channels=1,
-                               callback=self._cb):
+        with self._open_stream(sd, dev):
             self.get_logger().info('listening')
             while self.running and rclpy.ok():
                 try:
                     data = self.audio.get(timeout=0.5)
                 except queue.Empty:
                     continue
+                data = self._to_vosk(data)
                 if not rec.AcceptWaveform(data):
                     continue
                 text = json.loads(rec.Result()).get('text', '').strip()

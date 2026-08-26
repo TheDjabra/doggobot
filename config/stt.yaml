@@ -2,9 +2,10 @@ stt_node:
   ros__parameters:
     model_path: /home/pi/models/vosk-small-en
 
-    # PortAudio device. Empty means the ALSA default, which in this container is
-    # NOT the Samson (card 2). Set explicitly to avoid listening to nothing.
-    device: "plughw:2,0"
+    # PortAudio device, matched by name substring so it survives the index
+    # shifting when other USB devices come and go. Empty would mean the ALSA
+    # default, which in this container is NOT the Samson.
+    device: "Samson"
 
     sample_rate: 16000
 
