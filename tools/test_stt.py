@@ -29,13 +29,20 @@ for n in (3, 2, 1):
     print(f'  {n}...', flush=True)
     time.sleep(1)
 print(f'>>> RECORDING {SECS}s - SPEAK NOW <<<', flush=True)
-subprocess.run(['arecord', '-D', 'plughw:2,0', '-f', 'S16_LE', '-r', '16000',
+# Capture at the device's NATIVE rate and convert in software. ALSA's `plughw`
+# resampler is basic and can smear speech enough to wreck recognition, so this
+# takes the conversion into our own hands.
+NATIVE = os.environ.get('NATIVE_RATE', '44100')
+subprocess.run(['arecord', '-D', 'plughw:2,0', '-f', 'S16_LE', '-r', NATIVE,
                 '-c', '1', '-d', SECS, WAV],
                check=True, stderr=subprocess.DEVNULL)
 
 import audioop
 w = wave.open(WAV)
 raw = w.readframes(w.getnframes())
+if int(NATIVE) != 16000:
+    raw, _ = audioop.ratecv(raw, 2, 1, int(NATIVE), 16000, None)
+    print(f'resampled {NATIVE} -> 16000 in software')
 peak, rms = audioop.max(raw, 2), audioop.rms(raw, 2)
 print(f'captured {len(raw)} bytes  peak={peak}  rms={rms}')
 print('  rms under ~200 = effectively silence; a high peak with low rms is a '
