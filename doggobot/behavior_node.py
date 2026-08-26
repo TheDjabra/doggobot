@@ -42,14 +42,21 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 # Longest match first, so "circle left" cannot be swallowed by "left".
+#
+# Note these include SINGLE-WORD forms as well as full phrases, because Vosk's
+# constrained grammar is a WORD list rather than a phrase list: given the phrase
+# "back up" in the vocabulary it will happily return just "back". Matching only
+# full phrases meant a perfectly good recognition ("back") matched nothing.
 KEYWORDS = [
     ('circle_right', ('circle right', 'circle to the right', 'turn circles right')),
     ('circle_left',  ('circle left', 'circle to the left', 'turn circles left')),
-    ('reverse',      ('reverse', 'back up', 'go back', 'backward', 'backwards')),
-    ('forward',      ('forward', 'go forward', 'go straight', 'ahead')),
-    ('follow',       ('follow', 'follow me', 'come here')),
+    ('reverse',      ('reverse', 'back up', 'go back', 'backward', 'backwards',
+                      'back')),
+    ('forward',      ('go forward', 'forward', 'go straight', 'straight',
+                      'ahead')),
+    ('follow',       ('follow me', 'follow', 'come here')),
     ('wait',         ('wait', 'hold', 'stay', 'freeze')),
-    ('stop',         ('stop', 'halt', 'stop it')),
+    ('stop',         ('stop it', 'stop', 'halt')),
 ]
 
 

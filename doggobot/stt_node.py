@@ -34,8 +34,10 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
-# Mirrors behavior_node.KEYWORDS. Kept as flat phrases because Vosk's grammar
-# wants a word list, not an intent map.
+# Mirrors behavior_node.KEYWORDS. Vosk's grammar is a WORD list, so it can and
+# will return any combination of these words, including single words drawn out of
+# multi-word phrases ("back" from "back up"). behavior_node's matcher therefore
+# accepts the single-word forms too.
 PHRASES = [
     'stop', 'halt',
     'wait', 'hold', 'stay', 'freeze',
