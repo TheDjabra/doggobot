@@ -14,7 +14,9 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
         ('share/' + package_name + '/config', glob('config/*.yaml')),
-        ('share/' + package_name + '/web', glob('web/*.html')),
+        ('share/' + package_name + '/web',
+            glob('web/*.html') + glob('web/*.png') + glob('web/*.svg')
+            + glob('web/*.webmanifest')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

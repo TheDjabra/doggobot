@@ -1,0 +1,16 @@
+{
+  "name": "DOGGOBOT",
+  "short_name": "DOGGOBOT",
+  "description": "Voice and stick control for the MAE 148 robocar",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#060806",
+  "theme_color": "#060806",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

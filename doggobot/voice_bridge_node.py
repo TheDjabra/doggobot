@@ -32,7 +32,7 @@ import threading
 import rclpy
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
@@ -106,6 +106,31 @@ def build_app(node: BridgeNode) -> FastAPI:
     async def index():
         with open(os.path.join(WEB_DIR, 'index.html'), encoding='utf-8') as f:
             return f.read()
+
+    # Files the browser needs to treat this as an installable app rather than a
+    # web page. Served explicitly rather than by mounting a static directory, so
+    # nothing else in the package is exposed.
+    @app.get('/manifest.webmanifest')
+    async def manifest():
+        return FileResponse(os.path.join(WEB_DIR, 'manifest.webmanifest'),
+                            media_type='application/manifest+json')
+
+    @app.get('/favicon.svg')
+    async def favicon():
+        return FileResponse(os.path.join(WEB_DIR, 'favicon.svg'),
+                            media_type='image/svg+xml')
+
+    @app.get('/icon-192.png')
+    async def icon192():
+        return FileResponse(os.path.join(WEB_DIR, 'icon-192.png'))
+
+    @app.get('/icon-512.png')
+    async def icon512():
+        return FileResponse(os.path.join(WEB_DIR, 'icon-512.png'))
+
+    @app.get('/apple-touch-icon.png')
+    async def appleicon():
+        return FileResponse(os.path.join(WEB_DIR, 'apple-touch-icon.png'))
 
     @app.get('/healthz')
     async def healthz():
