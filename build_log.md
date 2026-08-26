@@ -279,3 +279,33 @@ briefly as expected, depth following a person between 544 and 1034 mm.
 The stock COCO export is 640 with 80 classes, roughly 2.4x the pixels and a far wider head,
 which would land near 5 fps in the same pipeline. If more classes are ever wanted, train a small
 multi-class model at 416 rather than adopt the stock 640 one.
+
+### Power stress test under motor load (2026-08-26)
+
+The OAK-D and LiDAR run from a DC-DC converter off the same 4S pack that feeds the VESC, so
+motor current transients sag the source that powers the camera. That failure cannot appear in a
+static test, only under motion, which is how it would otherwise be discovered at a demo.
+`tools/stress_power.sh` runs perception for 60 s while commanding eight full accelerate and
+direction-reversal cycles.
+
+| Measure | Result |
+|---|---|
+| perception fps under load | **12.3** (12.1 idle: no degradation) |
+| tracker | TRACKED 731/738 frames, LOST twice |
+| depth | 426 to 2054 mm |
+| `vcgencmd get_throttled` | **0x0** |
+| FET / SoC temp | 53.2 C |
+| USB resets during the run | none |
+
+`0x0` matters more than it looks: bit 16 of that register **latches** if undervoltage has
+occurred at any point since boot, so a clean zero after eight hard cycles means the pack never
+sagged enough to disturb the Pi and the converter held 5 V through every transient.
+
+The two USB disconnects in `dmesg` are the OAK-D's normal boot and shutdown transitions, where
+it re-enumerates between `Movidius MyriadX` (unbooted, `03e7:2485`) and `Luxonis Device`
+(running, `03e7:f63b`). Not brownouts.
+
+**Caveat**: the LiDAR was connected but its driver was not streaming, so this measures camera
+plus motor, not full peripheral load. Repeat once the LiDAR node runs.
+
+This demotes the powered USB hub from necessary to headroom.
