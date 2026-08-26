@@ -69,6 +69,14 @@ class BridgeNode(Node):
         self.teleop_pub = self.create_publisher(Twist, 'teleop_cmd', 10)
         self.estop_pub = self.create_publisher(Bool, 'estop', 10)
         self.voice_pub = self.create_publisher(String, 'voice_cmd', 10)
+        self.lock_pub = self.create_publisher(String, 'target_lock', 10)
+
+        # Latest perception state, pushed to the phone so the operator can see
+        # WHAT the car is following rather than inferring it from behaviour.
+        # Written from the rclpy thread, read from the asyncio loop: a plain
+        # attribute assignment is atomic under the GIL, which is all we need.
+        self.target = {'locked': False, 'status': 'UNKNOWN'}
+        self.create_subscription(String, 'target_state', self._on_target, 10)
 
         # NOT `self.clients`: rclpy.node.Node already defines `clients` as a
         # read-only property listing this node's service clients.
@@ -92,6 +100,17 @@ class BridgeNode(Node):
         self.estop_pub.publish(Bool(data=bool(engaged)))
         self.get_logger().warn(
             f'E-STOP {"ENGAGED" if engaged else "cleared"} from phone')
+
+    def _on_target(self, msg):
+        try:
+            self.target = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            pass
+
+    def publish_lock(self, engage):
+        action = 'lock' if engage else 'release'
+        self.lock_pub.publish(String(data=json.dumps({'action': action})))
+        self.get_logger().info(f'target {action} from phone')
 
     def publish_voice(self, text, source):
         self.voice_pub.publish(String(data=json.dumps(
@@ -141,6 +160,22 @@ def build_app(node: BridgeNode) -> FastAPI:
         await sock.accept()
         node.client_count += 1
         node.get_logger().info(f'client connected ({node.client_count} total)')
+
+        async def push_target():
+            """Stream perception state to the phone at 5 Hz.
+
+            Deliberately slower than perception's ~12 Hz: the operator is reading
+            it, not controlling on it, and this runs over a phone link.
+            """
+            try:
+                while True:
+                    await sock.send_text(json.dumps(
+                        {'type': 'target', **node.target}))
+                    await asyncio.sleep(0.2)
+            except Exception:                                # noqa: BLE001
+                pass
+
+        pusher = asyncio.create_task(push_target())
         try:
             while True:
                 msg = json.loads(await sock.receive_text())
@@ -154,6 +189,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                 elif kind == 'voice':
                     node.publish_voice(msg.get('text', ''),
                                        msg.get('source', 'speech'))
+                elif kind == 'lock':
+                    node.publish_lock(bool(msg.get('engage', True)))
                 elif kind == 'ping':
                     # Round-trip probe. The phone stamps and we echo, so the page
                     # can show real latency instead of us assuming the tailnet is
@@ -165,6 +202,7 @@ def build_app(node: BridgeNode) -> FastAPI:
         except Exception as e:                       # noqa: BLE001
             node.get_logger().warn(f'websocket error: {e}')
         finally:
+            pusher.cancel()
             node.client_count -= 1
             node.get_logger().info(f'client gone ({node.client_count} left)')
             if node.client_count <= 0:

@@ -69,12 +69,19 @@ class PerceptionNode(Node):
         self.declare_parameter('depth_window', 5)
         self.declare_parameter('lock_on_start', False)
         self.declare_parameter('max_objects', 10)
+        # After the tracker reports REMOVED, should we grab the next best target
+        # automatically? Default NO. Losing a target is a state the operator
+        # should be told about, not one the robot silently resolves by locking
+        # onto whoever walks past. Left true, stepping out of frame and back gets
+        # you a different person with no announcement.
+        self.declare_parameter('relock_on_loss', False)
 
         self.archive_path = self.get_parameter('archive_path').value
         self.confidence = float(self.get_parameter('confidence').value)
         self.nn_fps = float(self.get_parameter('nn_fps').value)
         self.depth_window = int(self.get_parameter('depth_window').value)
         self.max_objects = int(self.get_parameter('max_objects').value)
+        self.relock_on_loss = bool(self.get_parameter('relock_on_loss').value)
 
         self.locked_id = None
         self.want_lock = bool(self.get_parameter('lock_on_start').value)
@@ -151,9 +158,13 @@ class PerceptionNode(Node):
             for t in tracklets:
                 if t.id == self.locked_id:
                     if str(t.status).split('.')[-1] == 'REMOVED':
-                        self.get_logger().info(f'target {self.locked_id} REMOVED')
+                        self.get_logger().warn(
+                            f'target {self.locked_id} REMOVED'
+                            + ('' if self.relock_on_loss else ', lock dropped'))
                         self.locked_id = None
                         self.depths.clear()
+                        if not self.relock_on_loss:
+                            self.want_lock = False
                         return None
                     return t
             return None                       # id vanished entirely

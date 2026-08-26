@@ -21,3 +21,9 @@ perception_node:
     lock_on_start: false
 
     max_objects: 10
+
+    # After REMOVED, do NOT silently grab the next best target. Losing a lock is
+    # something the operator is told about. (Observed 2026-08-26: with this on,
+    # stepping out of frame and back locked onto a different target with no
+    # announcement.) The pan-servo sweep will re-lock explicitly instead.
+    relock_on_loss: false

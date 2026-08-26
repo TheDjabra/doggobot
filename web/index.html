@@ -116,6 +116,19 @@ h2{font-family:var(--font-display);font-size:12px;letter-spacing:var(--track-wid
 .btn[disabled]{color:var(--c-ink-faint);border-color:rgb(216 214 207 / .06)}
 #softstop{width:100%;margin-bottom:18px}
 
+/* ── target panel ───────────────────────────────────────────────────── */
+.target{border:var(--hairline-dim);background:var(--c-bg-raise);padding:10px;margin-bottom:12px}
+.target .line{display:flex;justify-content:space-between;font-size:12px;
+  letter-spacing:var(--track);color:var(--c-ink-dim);padding:2px 0}
+.target .line b{color:var(--c-ink);font-weight:400;font-variant-numeric:tabular-nums}
+.target .line b.on{color:var(--c-ok)}
+.target .line b.off{color:var(--c-ink-faint)}
+.target .line b.warn{color:var(--c-alert)}
+#follow{width:100%;padding:16px;margin-bottom:10px;background:var(--c-bg-raise);
+  border:2px solid var(--c-accent);color:var(--c-accent);font-family:var(--font-display);
+  font-size:18px;letter-spacing:var(--track-wide);text-transform:uppercase;cursor:pointer}
+#follow.on{background:var(--c-accent);color:#000}
+
 .row{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:18px}
 
 label.slider{display:block;font-size:11px;letter-spacing:var(--track);
@@ -197,11 +210,20 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
         <label class="slider">Max speed <span id="spdval">0.25</span>
           <input type="range" id="spd" min="0.13" max="0.30" step="0.01" value="0.25">
         </label>
+        <h2>Target</h2>
+        <div class="target">
+          <div class="line">status <b id="tstatus" class="off">--</b></div>
+          <div class="line">id <b id="tid" class="off">--</b></div>
+          <div class="line">distance <b id="tdist" class="off">--</b></div>
+          <div class="line">confidence <b id="tconf" class="off">--</b></div>
+        </div>
+        <button id="follow">FOLLOW</button>
+
         <h2>Primitives</h2>
         <div class="row">
           <button class="btn" disabled>Circle</button>
           <button class="btn" disabled>Figure-8</button>
-          <button class="btn" disabled>Follow</button>
+          <button class="btn" disabled>Reverse</button>
           <button class="btn" disabled>Wait</button>
         </div>
         <p class="note">Not implemented yet. These will publish to /behavior_cmd,
@@ -254,6 +276,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     ws.onmessage = e => {
       const m = JSON.parse(e.data);
       if (m.type === 'pong') $('rtt').textContent = `${Math.round(performance.now() - m.t)} ms`;
+      else if (m.type === 'target') paintTarget(m);
     };
   }
   function send(o) {
@@ -358,6 +381,36 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     $('kill').textContent = estop ? 'KILLED - TAP TO CLEAR' : 'KILL';
     stopStream();
     send({ type: 'estop', engaged: estop });
+  });
+
+  // ── follow / target ──────────────────────────────────────────────────
+  // The button reflects what the ROBOT reports, not what we last tapped. If the
+  // car drops a lock the button goes dark by itself, so the two can never
+  // silently disagree about whether anything is being followed.
+  let following = false;
+
+  function paintTarget(t) {
+    const st = $('tstatus'), id = $('tid'), d = $('tdist'), c = $('tconf');
+    const locked = !!t.locked;
+
+    st.textContent = t.status || '--';
+    st.className = locked ? (t.status === 'TRACKED' ? 'on' : 'warn') : 'off';
+    id.textContent = (t.id === null || t.id === undefined) ? '--' : t.id;
+    id.className = locked ? '' : 'off';
+    d.textContent = t.z_mm ? `${(t.z_mm / 1000).toFixed(2)} m` : '--';
+    d.className = t.z_mm ? '' : 'off';
+    c.textContent = t.conf ? t.conf.toFixed(2) : '--';
+    c.className = t.conf ? '' : 'off';
+
+    if (locked !== following) {
+      following = locked;
+      $('follow').classList.toggle('on', following);
+      $('follow').textContent = following ? 'FOLLOWING - TAP TO RELEASE' : 'FOLLOW';
+    }
+  }
+
+  $('follow').addEventListener('click', () => {
+    send({ type: 'lock', engage: !following });
   });
 
   // ── tabs ─────────────────────────────────────────────────────────────
