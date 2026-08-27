@@ -34,9 +34,21 @@ def main():
         String, 'behavior_state',
         lambda m: seen.append(json.loads(m.data)), 10)
 
-    # Publishers need a moment before anyone is listening.
-    for _ in range(20):
-        rclpy.spin_once(node, timeout_sec=0.05)
+    def wait_for_subscriber(pub, name, timeout=10.0):
+        """ROS2 discovery is asynchronous: publishing before the far side has
+        connected sends the message nowhere, silently. Sleeping a fixed second
+        works most of the time, which is worse than failing consistently. Wait
+        for an actual subscriber instead."""
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if pub.get_subscription_count() > 0:
+                return True
+            rclpy.spin_once(node, timeout_sec=0.05)
+        print(f'  WARNING: nothing subscribed to {name} after {timeout:.0f}s')
+        return False
+
+    wait_for_subscriber(arm, '/arm')
+    wait_for_subscriber(cmd, '/voice_cmd')
 
     print('arming')
     arm.publish(Bool(data=True))
