@@ -638,3 +638,13 @@ out-of-vocabulary warning. Vosk accepted every candidate without complaint, incl
 words, so the test proved nothing. The model ships its vocabulary compiled into `Gr.fst` with no
 plain word list to grep. **The only reliable check is saying the word and seeing what comes
 back.**
+
+### Power cycle verified (2026-08-26)
+
+Full cold boot tested: battery and power removed, restored, then straight to the phone. The
+container, all seven nodes, and `tailscale serve` all came back on their own. **Powered on,
+opened the app, tapped ARM, gave a command. No terminal involved at any point.**
+
+This was the last unverified assumption in the startup path. `systemctl restart` had been working
+all along, but that only proves the unit runs, not that Docker's restart policy, service
+ordering, network-online, and tailscaled all sequence correctly from cold. They do.
