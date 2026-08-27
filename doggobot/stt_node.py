@@ -53,6 +53,9 @@ PHRASES = [
     'circle right', 'circle to the right',
     'circle left', 'circle to the left',
     'follow', 'follow me', 'come here',
+    # Chain separators, so a spoken sequence survives the constrained grammar:
+    # "atlas forward then circle left then stop".
+    'then', 'and',
 ]
 
 

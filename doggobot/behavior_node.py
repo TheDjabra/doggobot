@@ -20,7 +20,11 @@ paths (on-robot microphone and phone) publish to /voice_cmd, so putting the
 vocabulary next to the primitives means neither path can drift out of sync with
 what the car can actually do.
 
-Also runs SEQUENCES: an ordered list of steps executed one at a time.
+Also runs SEQUENCES, either spoken as a chain:
+
+    "forward then circle left then stop"
+
+or given structurally, which is what the LLM tier will emit:
 
     {"action": "sequence", "steps": [
         {"action": "forward", "seconds": 2},
@@ -145,6 +149,20 @@ class BehaviorNode(Node):
 
     # -- inputs ---------------------------------------------------------------
 
+    def _split_chain(self, text):
+        """Split spoken chains into steps: "forward then circle left then stop".
+
+        A keyword split, not language understanding. It covers the common case
+        without the latency or the network dependency of an LLM, and the LLM tier
+        can still handle anything with structure this cannot express (counts,
+        durations, conditions).
+        """
+        t = ' '.join(text.lower().split())
+        for sep in (' and then ', ' then ', ' after that '):
+            t = t.replace(sep, ' | ')
+        parts = [p.strip() for p in t.split('|')]
+        return [p for p in parts if p]
+
     def _match(self, text):
         t = ' '.join(text.lower().split())
         for name, phrases in KEYWORDS:
@@ -192,6 +210,23 @@ class BehaviorNode(Node):
                         f'ignored (no wake word): {candidates[0]!r}')
                     return
                 candidates = gated
+            # A spoken chain becomes a sequence. Try this before single-command
+            # matching, since "forward then stop" would otherwise match "forward"
+            # and silently drop the rest.
+            for text in candidates:
+                parts = self._split_chain(text)
+                if len(parts) < 2:
+                    continue
+                steps = [{'action': self._match(p)} for p in parts]
+                if all(st['action'] for st in steps):
+                    self.get_logger().info(
+                        f'"{text}" -> sequence of {len(steps)}')
+                    self._start_sequence(steps)
+                    return
+                missed = [p for p, st in zip(parts, steps) if not st['action']]
+                self.get_logger().info(
+                    f'chain rejected, no primitive for: {missed}')
+
             for i, text in enumerate(candidates):
                 action = self._match(text)
                 if action:
