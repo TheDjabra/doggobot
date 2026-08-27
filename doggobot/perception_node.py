@@ -55,7 +55,6 @@ from collections import deque
 
 import cv2
 import depthai as dai
-import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
@@ -91,13 +90,6 @@ class PerceptionNode(Node):
         self.declare_parameter('video_quality', 55)
         self.declare_parameter('video_annotate', True)
 
-        # Video for the phone. Encoding costs Pi CPU, so it is throttled well
-        # below the pipeline rate and only runs when something is subscribed:
-        # nobody watching means no JPEGs made at all.
-        self.declare_parameter('video_fps', 8.0)
-        self.declare_parameter('video_quality', 55)
-        self.declare_parameter('video_annotate', True)
-
         self.archive_path = self.get_parameter('archive_path').value
         self.confidence = float(self.get_parameter('confidence').value)
         self.nn_fps = float(self.get_parameter('nn_fps').value)
@@ -108,10 +100,6 @@ class PerceptionNode(Node):
         self.video_quality = int(self.get_parameter('video_quality').value)
         self.video_annotate = bool(self.get_parameter('video_annotate').value)
         self._last_frame = 0.0
-        self.video_fps = float(self.get_parameter('video_fps').value)
-        self.video_quality = int(self.get_parameter('video_quality').value)
-        self.video_annotate = bool(self.get_parameter('video_annotate').value)
-        self._last_frame_pub = 0.0
 
         self.locked_id = None
         self.want_lock = bool(self.get_parameter('lock_on_start').value)
@@ -235,14 +223,14 @@ class PerceptionNode(Node):
         if self.video_fps <= 0 or self.image_pub.get_subscription_count() == 0:
             return
         now = time.time()
-        if now - self._last_frame_pub < 1.0 / self.video_fps:
+        if now - self._last_frame < 1.0 / self.video_fps:
             return
 
         pkt = qframe.tryGet()
         if pkt is None:
             return
         frame = pkt.getCvFrame()
-        self._last_frame_pub = now
+        self._last_frame = now
 
         if self.video_annotate and tracklets:
             h, w = frame.shape[:2]
