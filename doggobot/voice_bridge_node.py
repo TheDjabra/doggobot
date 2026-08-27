@@ -60,6 +60,12 @@ class BridgeNode(Node):
         self.declare_parameter('port', 8080)
         self.declare_parameter('max_teleop_throttle', 0.30)
         self.declare_parameter('throttle_floor', 0.365)
+        # Seconds to wait after the last client leaves before disarming. Phone
+        # browsers close WebSockets constantly (screen sleep, backgrounding, a
+        # network blip), and disarming instantly killed a running sequence three
+        # seconds in. Walking away should still make the car inert, so this is a
+        # delay rather than a removal.
+        self.declare_parameter('disarm_grace_s', 10.0)
 
         self.port = int(self.get_parameter('port').value)
         self.max_teleop_throttle = float(
@@ -90,6 +96,8 @@ class BridgeNode(Node):
         # NOT `self.clients`: rclpy.node.Node already defines `clients` as a
         # read-only property listing this node's service clients.
         self.client_count = 0
+        self.disarm_grace = float(self.get_parameter('disarm_grace_s').value)
+        self._disarm_timer = None
         self.get_logger().info(
             f'bridge up on :{self.port}, teleop ceiling '
             f'{self.max_teleop_throttle}, floor {self.throttle_floor}')
@@ -131,6 +139,25 @@ class BridgeNode(Node):
     def publish_arm(self, armed):
         self.arm_pub.publish(Bool(data=bool(armed)))
         self.get_logger().warn(f'{"ARMED" if armed else "disarmed"} from phone')
+
+    def schedule_disarm(self):
+        """Disarm after the grace period, unless somebody reconnects first."""
+        self.cancel_disarm()
+        self.get_logger().info(
+            f'no clients; disarming in {self.disarm_grace:.0f}s unless one returns')
+        self._disarm_timer = self.create_timer(
+            self.disarm_grace, self._disarm_now)
+
+    def _disarm_now(self):
+        self.cancel_disarm()
+        if self.client_count <= 0:
+            self.publish_arm(False)
+
+    def cancel_disarm(self):
+        if self._disarm_timer is not None:
+            self._disarm_timer.cancel()
+            self.destroy_timer(self._disarm_timer)
+            self._disarm_timer = None
 
     def publish_lock(self, engage):
         action = 'lock' if engage else 'release'
@@ -198,6 +225,7 @@ def build_app(node: BridgeNode) -> FastAPI:
     async def ws(sock: WebSocket):
         await sock.accept()
         node.client_count += 1
+        node.cancel_disarm()
         node.get_logger().info(f'client connected ({node.client_count} total)')
 
         async def push_target():
@@ -255,10 +283,11 @@ def build_app(node: BridgeNode) -> FastAPI:
             node.client_count -= 1
             node.get_logger().info(f'client gone ({node.client_count} left)')
             if node.client_count <= 0:
-                # Last client out: stop asserting teleop AND disarm. Walking away
-                # from the car should leave it inert, not merely idle.
+                # Stop asserting teleop immediately: a vanished phone must not
+                # keep the sticks alive. Disarming waits, because a dropped
+                # socket usually means a sleeping screen, not a departed operator.
                 node.publish_teleop(0.0, 0.0)
-                node.publish_arm(False)
+                node.schedule_disarm()
 
     return app
 

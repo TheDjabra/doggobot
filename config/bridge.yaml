@@ -10,3 +10,8 @@ voice_bridge_node:
     # The bridge steps small stick deflections up to this, because below it the
     # car judders instead of creeping.
     throttle_floor: 0.365
+
+    # Grace period before disarming after the last client leaves. Phone browsers
+    # drop WebSockets constantly (screen sleep, backgrounding, network blips) and
+    # disarming instantly killed a running sequence three seconds in.
+    disarm_grace_s: 10.0

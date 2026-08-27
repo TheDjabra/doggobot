@@ -37,6 +37,11 @@ see docs/hardware.md.
 frame, and the stereo median filter had to be disabled on-device because it
 exhausts SIPP memory once a NN shares the chip.
 
+**Video is published only when watched.** JPEG encoding costs Pi CPU, so frames
+are made only if something is subscribed and only at `video_fps`, well below the
+pipeline rate. The frame comes from the tracker's own passthrough, so the overlay
+is drawn on exactly the frame the tracklets describe.
+
 **The camera is allowed to disappear.** The OAK-D re-enumerates on the USB bus
 when a pipeline starts and stops, and a brownout would do the same. The pipeline
 is rebuilt in a loop rather than taking the node down with it.
@@ -48,9 +53,12 @@ import threading
 import time
 from collections import deque
 
+import cv2
 import depthai as dai
+import numpy as np
 import rclpy
 from rclpy.node import Node
+from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String
 
 
@@ -76,18 +84,30 @@ class PerceptionNode(Node):
         # you a different person with no announcement.
         self.declare_parameter('relock_on_loss', False)
 
+        # Video for the phone. Encoding costs Pi CPU, so it is throttled well
+        # below the pipeline rate and only runs when something is subscribed:
+        # nobody watching means no JPEGs made at all.
+        self.declare_parameter('video_fps', 8.0)
+        self.declare_parameter('video_quality', 55)
+        self.declare_parameter('video_annotate', True)
+
         self.archive_path = self.get_parameter('archive_path').value
         self.confidence = float(self.get_parameter('confidence').value)
         self.nn_fps = float(self.get_parameter('nn_fps').value)
         self.depth_window = int(self.get_parameter('depth_window').value)
         self.max_objects = int(self.get_parameter('max_objects').value)
         self.relock_on_loss = bool(self.get_parameter('relock_on_loss').value)
+        self.video_fps = float(self.get_parameter('video_fps').value)
+        self.video_quality = int(self.get_parameter('video_quality').value)
+        self.video_annotate = bool(self.get_parameter('video_annotate').value)
+        self._last_frame_pub = 0.0
 
         self.locked_id = None
         self.want_lock = bool(self.get_parameter('lock_on_start').value)
         self.depths = deque(maxlen=self.depth_window)
 
         self.state_pub = self.create_publisher(String, 'target_state', 10)
+        self.image_pub = self.create_publisher(CompressedImage, 'camera/compressed', 2)
         self.create_subscription(String, 'target_lock', self._on_lock, 10)
 
         self.running = True
@@ -147,7 +167,10 @@ class PerceptionNode(Node):
         det.passthrough.link(tracker.inputTrackerFrame)
         det.passthrough.link(tracker.inputDetectionFrame)
         det.out.link(tracker.inputDetections)
-        return tracker.out.createOutputQueue()
+        # The tracker passes its input frame through, so the video comes from the
+        # same packet as the tracklets. No second camera stream, and the overlay
+        # is guaranteed to match the frame it is drawn on.
+        return tracker.out.createOutputQueue(), tracker.passthroughTrackerFrame.createOutputQueue()
 
     def _select(self, tracklets):
         """Return the tracklet we are following, acquiring a lock if asked."""
@@ -184,10 +207,10 @@ class PerceptionNode(Node):
         while self.running and rclpy.ok():
             try:
                 with dai.Pipeline() as pipeline:
-                    q = self._build(pipeline)
+                    q, qframe = self._build(pipeline)
                     pipeline.start()
                     self.get_logger().info('camera pipeline started')
-                    self._loop(q)
+                    self._loop(q, qframe)
             except Exception as e:                            # noqa: BLE001
                 if not self.running:
                     return
@@ -195,7 +218,47 @@ class PerceptionNode(Node):
                 self._publish_no_target(0.0, 'CAMERA_DOWN')
                 time.sleep(2.0)
 
-    def _loop(self, q):
+    def _publish_frame(self, qframe, tracklets):
+        """Encode a JPEG for the phone, at a throttled rate, only if watched."""
+        if self.video_fps <= 0 or self.image_pub.get_subscription_count() == 0:
+            return
+        now = time.time()
+        if now - self._last_frame_pub < 1.0 / self.video_fps:
+            return
+
+        pkt = qframe.tryGet()
+        if pkt is None:
+            return
+        frame = pkt.getCvFrame()
+        self._last_frame_pub = now
+
+        if self.video_annotate and tracklets:
+            h, w = frame.shape[:2]
+            for t in tracklets:
+                status = str(t.status).split('.')[-1]
+                if status not in ('TRACKED', 'NEW', 'LOST'):
+                    continue
+                mine = (t.id == self.locked_id)
+                roi = t.roi.denormalize(w, h)
+                colour = ((0, 176, 255) if mine else (120, 120, 120))
+                cv2.rectangle(frame, (int(roi.x), int(roi.y)),
+                              (int(roi.x + roi.width), int(roi.y + roi.height)),
+                              colour, 2 if mine else 1)
+                if mine:
+                    z = t.spatialCoordinates.z
+                    cv2.putText(frame, f'{z / 1000:.2f}m', (int(roi.x), int(roi.y) - 6),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
+
+        ok, jpg = cv2.imencode('.jpg', frame,
+                               [int(cv2.IMWRITE_JPEG_QUALITY), self.video_quality])
+        if not ok:
+            return
+        msg = CompressedImage()
+        msg.format = 'jpeg'
+        msg.data = jpg.tobytes()
+        self.image_pub.publish(msg)
+
+    def _loop(self, q, qframe):
         frames, t0, fps = 0, time.time(), 0.0
         while self.running and rclpy.ok():
             pkt = q.tryGet()
@@ -208,6 +271,8 @@ class PerceptionNode(Node):
                 now = time.time()
                 fps = 20.0 / (now - t0)
                 t0 = now
+
+            self._publish_frame(qframe, pkt.tracklets)
 
             t = self._select(pkt.tracklets)
             if t is None:
