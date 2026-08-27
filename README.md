@@ -42,8 +42,8 @@ started at power-on by systemd.
 | `stt_node` | on-board mic -> `/voice_cmd`, offline Vosk |
 | `voice_bridge_node` | phone app: sticks, kill switch, arm, buttons, browser speech, telemetry |
 
-**Not built yet**: command sequencing, conditional actions, colour detection (the three that the
-proposal's mission statement needs), the LiDAR safety node, the pan servo, and the LLM tier.
+**Not built yet**: colour detection and conditional actions (the mission statement needs both),
+the LiDAR safety node, the pan servo, and the LLM tier.
 
 ## Using it
 
@@ -57,6 +57,12 @@ Or hold push-to-talk in the app and say the command without the name, because ho
 is already the gate:
 
 > "circle left" · "go forward" · "stop"
+
+Chain commands with **then** to run a sequence:
+
+> "atlas forward then circle left then stop"
+
+Tap **Video On** in the app to see the camera with the tracking overlay.
 
 Full startup and troubleshooting in [docs/runbook.md](docs/runbook.md).
 

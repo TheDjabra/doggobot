@@ -53,9 +53,20 @@ so no depth math happens on the Pi. The tracker assigns persistent IDs with
 NEW/TRACKED/LOST/REMOVED states, which is what "lock onto a target" means here: no hand-rolled
 association logic, and the LOST state is a free grace period before declaring the target gone.
 
-**`behavior_node`** owns the primitives and the sequencing executor. Primitives:
-color-seek, follow, turn, reverse, wait, circle, figure-8. The executor is a state machine
-that runs an ordered list of primitives with clean transitions between them.
+**`behavior_node`** owns the primitives, the vocabulary, and the sequencing executor, and is the
+sole publisher of `/behavior_cmd`. Primitives: forward, reverse, circle_left, circle_right, wait,
+stop, and follow. Follow is a primitive rather than a parallel system, so mutual exclusion is
+structural: `follow_node` publishes `/follow_cmd` and this node relays it only while follow is
+the active mode.
+
+Every moving primitive is time-bounded. "Forward until further notice" is how a car ends up in a
+wall when a link drops.
+
+The executor runs an ordered list of steps. Spoken chains ("forward then circle left then stop")
+are a keyword split, which covers the common case without an LLM's latency or network dependency.
+A chain where any step fails to parse is refused entirely rather than partially executed. Steps
+may carry an `until` condition read from `/condition_state`; nothing publishes that yet, and the
+step's duration doubles as a timeout so a condition that never arrives cannot strand the car.
 
 **`arbiter_node`** is the sole `/cmd_vel` publisher, as above.
 
