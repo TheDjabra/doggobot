@@ -20,6 +20,28 @@ paths (on-robot microphone and phone) publish to /voice_cmd, so putting the
 vocabulary next to the primitives means neither path can drift out of sync with
 what the car can actually do.
 
+Also runs SEQUENCES: an ordered list of steps executed one at a time.
+
+    {"action": "sequence", "steps": [
+        {"action": "forward", "seconds": 2},
+        {"action": "circle_left"},
+        {"action": "forward", "until": {"color": "green"}},
+        {"action": "stop"}]}
+
+A step ends when its duration lapses or its `until` condition is met, whichever
+comes first. The duration therefore doubles as a timeout on every condition,
+which matters: a sequence waiting forever on a green marker it will never see is
+a car stuck in the middle of a demo with no way out.
+
+Conditions are read from /condition_state, published by whatever can observe
+them. Nothing publishes it yet, so a step with `until` currently falls back to
+its duration and says so. That is deliberate: the executor is finished and the
+sensor is not, and wiring colour detection in later is a subscriber rather than a
+rewrite.
+
+Any single command arriving mid-sequence cancels the whole sequence. Saying
+"stop" must stop the car, not the current step of something that then continues.
+
 Primitives:
 
     stop            cancel everything, publish nothing more
@@ -100,6 +122,10 @@ class BehaviorNode(Node):
 
         self.active = None          # primitive name, or None when idle
         self.until = 0.0            # wall-clock deadline; 0 means open-ended
+        self.sequence = []          # remaining steps
+        self.seq_len = 0            # for reporting progress
+        self.step_condition = None  # {"color": "green"} etc, or None
+        self.conditions = {}        # latest observed conditions
         self.follow_cmd = Twist()
         self.follow_fresh = 0.0
 
@@ -110,6 +136,7 @@ class BehaviorNode(Node):
         self.create_subscription(String, 'voice_cmd', self._on_command, 10)
         self.create_subscription(Twist, 'follow_cmd', self._on_follow, 10)
         self.create_subscription(String, 'target_state', self._on_target, 10)
+        self.create_subscription(String, 'condition_state', self._on_condition, 10)
 
         self.create_timer(1.0 / self.hz, self._tick)
         self.get_logger().info(
@@ -178,6 +205,10 @@ class BehaviorNode(Node):
                        if len(candidates) > 1 else ''))
                 return
 
+        if action == 'sequence':
+            self._start_sequence(m.get('steps'))
+            return
+
         seconds = m.get('seconds')
         self._start(action, float(seconds) if seconds else None)
 
@@ -197,19 +228,81 @@ class BehaviorNode(Node):
         except Exception:                                    # noqa: BLE001
             return
         if locked and self.active != 'follow':
+            self._cancel_sequence('follow lock acquired')
             self._enter('follow', 0.0)
         elif not locked and self.active == 'follow':
             self.get_logger().info('follow ended: lock lost')
             self._enter(None, 0.0)
+
+    def _on_condition(self, msg):
+        """Latest observed world state, e.g. {"color": "green", "distance": 900}."""
+        try:
+            self.conditions = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            pass
+
+    def _condition_met(self):
+        if not self.step_condition:
+            return False
+        for key, want in self.step_condition.items():
+            if self.conditions.get(key) != want:
+                return False
+        return True
 
     # -- primitive control ----------------------------------------------------
 
     def _enter(self, name, until):
         self.active, self.until = name, until
         self.state_pub.publish(String(data=json.dumps({
-            'active': name, 'until': until, 'stamp': time.time()})))
+            'active': name, 'until': until,
+            'step': (self.seq_len - len(self.sequence)) if self.seq_len else 0,
+            'steps': self.seq_len,
+            'waiting_for': self.step_condition,
+            'stamp': time.time()})))
 
-    def _start(self, action, seconds=None):
+    def _start_sequence(self, steps):
+        if not isinstance(steps, list) or not steps:
+            self.get_logger().warn('sequence with no steps')
+            return
+        steps = steps[:20]                     # a sane bound on a parsed command
+        self.sequence = list(steps)
+        self.seq_len = len(self.sequence)
+        self.get_logger().info(
+            f'sequence of {self.seq_len}: '
+            + ' -> '.join(str(s.get('action')) for s in self.sequence))
+        self._next_step()
+
+    def _next_step(self):
+        if not self.sequence:
+            self.get_logger().info('sequence complete')
+            self.seq_len = 0
+            self.step_condition = None
+            self._enter(None, 0.0)
+            self.cmd_pub.publish(Twist())
+            return
+        step = self.sequence.pop(0)
+        done = self.seq_len - len(self.sequence)
+        self.get_logger().info(f'step {done}/{self.seq_len}: {step.get("action")}')
+        self.step_condition = step.get('until')
+        if self.step_condition and not self.conditions:
+            self.get_logger().warn(
+                f'step waits on {self.step_condition} but nothing publishes '
+                '/condition_state yet; the duration will time it out')
+        self._start(step.get('action'), step.get('seconds'), in_sequence=True)
+
+    def _cancel_sequence(self, why):
+        if self.sequence or self.seq_len:
+            self.get_logger().info(f'sequence cancelled: {why}')
+        self.sequence = []
+        self.seq_len = 0
+        self.step_condition = None
+
+    def _start(self, action, seconds=None, in_sequence=False):
+        if not in_sequence:
+            # A single command mid-sequence cancels the whole thing. "Stop" must
+            # stop the car, not just the current step of something continuing.
+            self._cancel_sequence(f'{action} commanded')
+
         if action in ('stop', 'release'):
             if self.active == 'follow':
                 self._release_lock()
@@ -254,7 +347,15 @@ class BehaviorNode(Node):
                 self.cmd_pub.publish(self.follow_cmd)
             return
 
-        if self.until and time.time() >= self.until:
+        finished = self.until and time.time() >= self.until
+        if self.step_condition and self._condition_met():
+            self.get_logger().info(f'condition met: {self.step_condition}')
+            finished = True
+
+        if finished:
+            if self.sequence or self.seq_len:
+                self._next_step()
+                return
             self.get_logger().info(f'{self.active} finished')
             self._enter(None, 0.0)
             self.cmd_pub.publish(Twist())
