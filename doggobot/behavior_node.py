@@ -223,9 +223,15 @@ class BehaviorNode(Node):
                         f'"{text}" -> sequence of {len(steps)}')
                     self._start_sequence(steps)
                     return
+                # It was a chain and part of it did not parse. Refuse the whole
+                # thing rather than falling through to single-command matching,
+                # which would execute a FRAGMENT of what was asked for: saying
+                # "forward then jump then stop" and getting a car that just
+                # drives forward is worse than getting nothing.
                 missed = [p for p, st in zip(parts, steps) if not st['action']]
-                self.get_logger().info(
-                    f'chain rejected, no primitive for: {missed}')
+                self.get_logger().warn(
+                    f'chain refused, no primitive for {missed} in "{text}"')
+                return
 
             for i, text in enumerate(candidates):
                 action = self._match(text)
