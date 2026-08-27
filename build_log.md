@@ -648,3 +648,61 @@ opened the app, tapped ARM, gave a command. No terminal involved at any point.**
 This was the last unverified assumption in the startup path. `systemctl restart` had been working
 all along, but that only proves the unit runs, not that Docker's restart policy, service
 ordering, network-online, and tailscaled all sequence correctly from cold. They do.
+
+---
+
+## 2026-08-27 - Sequencing, video, and three real fixes
+
+**Sequencing executor.** `behavior_node` runs an ordered list of steps, one at a time. Verified on
+the car: forward at 0.0 s, circle_left at 2.1 s, reverse at 5.1 s, stop at 7.2 s.
+
+Spoken chains work without an LLM: **"forward then circle left then stop"** splits on
+`then` / `and then` / `after that`. A keyword split, not language understanding, but it covers
+the common case with no latency and no network. Each step keeps its default duration.
+
+**A chain that half-parses is refused entirely.** First implementation rejected the chain and
+then fell through to single-command matching, so "forward then jump then stop" drove the car
+forward. Executing a fragment of something asked for as a whole is worse than doing nothing, and
+that is exactly how a robot ends up somewhere surprising. Now the whole utterance is refused and
+logged.
+
+**Condition hook is in but unwired.** A step may carry `{"until": {...}}`, read from
+`/condition_state`. Nothing publishes that yet, so such a step falls back to its duration and
+says so. The duration therefore doubles as a timeout on every condition, which matters: a
+sequence waiting forever on a green marker it will never see is a car stuck mid-demo with no way
+out.
+
+**Video to the phone.** `perception_node` JPEG-encodes the tracker's own passthrough frame (so
+the overlay always matches the image it is drawn on) and publishes `camera/compressed`; the
+bridge serves it at `/stream.mjpg` as multipart MJPEG, which any browser renders in a plain
+`<img>` with no client library, no WebRTC negotiation and no codec check. The app has a Video
+On/Off toggle, off by default.
+
+Encoding runs only when something is subscribed and at 8 fps against the pipeline's 12: not
+watching costs the car nothing, and video should never take cores from the control loop.
+
+### Three fixes, each found by something behaving oddly
+
+**Follow no longer reverses**, and the deadband widened from 150 to 300 mm. With the throttle
+floor at 0.365 there is no slow speed, so the loop is bang-bang: it overshot the standoff,
+reversed, overshot the other way, and yo-yo'd around 1 m. Driving up and stopping is also better
+behaviour on its own terms, since a car backing away from someone walking toward it reads as
+skittish.
+
+**Disarm now has a 10 s grace period.** The disarm-on-last-client-disconnect rule fired three
+seconds into a running sequence when the phone's WebSocket dropped. Phone browsers close sockets
+constantly (screen sleep, backgrounding, network blips). Walking away should still make the car
+inert, so this is a delay with a cancel-on-reconnect, not a removal.
+
+**ROS2 discovery is asynchronous, and publishing into it is silent success.** A test script
+created a publisher and published about a second later; sometimes the far side had connected and
+sometimes it had not, with no error either way. That intermittency is worse than a consistent
+failure because it looks like a logic bug. Any script that starts, publishes and exits must wait
+for `get_subscription_count() > 0` rather than sleeping and hoping.
+
+### A process note on my own error
+
+The duplicated video code that crashed `perception_node` at startup
+(`ParameterAlreadyDeclaredException: ['video_fps']`) came from an edit that had partially applied
+before an interruption. I assumed an interrupted tool call meant nothing was written. **Check
+file state after an interruption instead of assuming it was atomic.**
