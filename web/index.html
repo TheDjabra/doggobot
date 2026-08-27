@@ -127,6 +127,12 @@ h2{font-family:var(--font-display);font-size:12px;letter-spacing:var(--track-wid
 .btn[disabled]{color:var(--c-ink-faint);border-color:rgb(216 214 207 / .06)}
 #softstop{width:100%;margin-bottom:18px}
 
+/* ── video ──────────────────────────────────────────────────────────── */
+.videowrap{position:relative;margin-bottom:12px;background:#000;border:var(--hairline-dim)}
+.videowrap img{display:block;width:100%;height:auto}
+.videowrap.off{display:none}
+#vidtoggle{width:100%;margin-bottom:12px}
+
 /* ── target panel ───────────────────────────────────────────────────── */
 .target{border:var(--hairline-dim);background:var(--c-bg-raise);padding:10px;margin-bottom:12px}
 .target .line{display:flex;justify-content:space-between;font-size:12px;
@@ -218,6 +224,8 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
       </div>
 
       <div class="center">
+        <button class="btn" id="vidtoggle">Video On</button>
+        <div class="videowrap off" id="videowrap"><img id="video" alt=""></div>
         <button class="btn" id="softstop">STOP</button>
         <label class="slider">Max speed <span id="spdval">0.25</span>
           <input type="range" id="spd" min="0.13" max="0.30" step="0.01" value="0.25">
@@ -440,6 +448,20 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
       $('follow').textContent = following ? 'FOLLOWING - TAP TO RELEASE' : 'FOLLOW';
     }
   }
+
+  // ── video ────────────────────────────────────────────────────────────
+  // Off by default and torn down when hidden: the stream only exists while an
+  // <img> is actually requesting it, and perception only encodes JPEGs while
+  // something is subscribed. Not watching costs the car nothing.
+  let video = false;
+  $('vidtoggle').addEventListener('click', () => {
+    video = !video;
+    $('videowrap').classList.toggle('off', !video);
+    $('vidtoggle').textContent = video ? 'Video Off' : 'Video On';
+    // Cache-bust so a re-enable starts a fresh stream rather than resuming a
+    // dead one, and clear the src on hide so the connection actually closes.
+    $('video').src = video ? `/stream.mjpg?t=${Date.now()}` : '';
+  });
 
   // ── arm gate ─────────────────────────────────────────────────────────
   // The car powers on disarmed. This button is the only thing that changes

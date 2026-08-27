@@ -27,3 +27,10 @@ perception_node:
     # stepping out of frame and back locked onto a different target with no
     # announcement.) The pan-servo sweep will re-lock explicitly instead.
     relock_on_loss: false
+
+    # Video for the phone. Encoded only when something is subscribed, and well
+    # below the pipeline rate, because JPEG encoding competes with the control
+    # loop for the same Pi cores.
+    video_fps: 8.0
+    video_quality: 55
+    video_annotate: true

@@ -97,10 +97,10 @@ class FollowNode(Node):
         self.declare_parameter('standoff_mm', 1000.0)
         self.declare_parameter('kp_throttle', 0.0004)
         self.declare_parameter('kd_throttle', 0.0001)
-        self.declare_parameter('throttle_deadband_mm', 150.0)
+        self.declare_parameter('throttle_deadband_mm', 300.0)
         self.declare_parameter('throttle_floor', 0.365)
         self.declare_parameter('max_throttle', 0.25)
-        self.declare_parameter('allow_reverse', True)
+        self.declare_parameter('allow_reverse', False)
         # Reverse gets its own ceiling. Approaching a target and backing away
         # from one are not symmetric situations: someone stepping toward the car
         # produces a large negative error fast, and full-authority reverse there

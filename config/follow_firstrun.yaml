@@ -22,7 +22,7 @@ follow_node:
     standoff_mm: 1000.0
     kp_throttle: 0.0004
     kd_throttle: 0.0001
-    throttle_deadband_mm: 200.0   # wider than bench: less hunting on a first run
+    throttle_deadband_mm: 300.0   # wider than bench: less hunting on a first run
     throttle_floor: 0.365
     max_throttle: 0.382           # must be >= throttle_floor, or the floor
                                   # silently overrides the ceiling.

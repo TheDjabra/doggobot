@@ -84,6 +84,13 @@ class PerceptionNode(Node):
         # you a different person with no announcement.
         self.declare_parameter('relock_on_loss', False)
 
+        # Video for the phone. JPEG encoding costs Pi CPU that the control loop
+        # needs more, so it runs well below the pipeline rate and only when
+        # something is actually subscribed: nobody watching costs nothing.
+        self.declare_parameter('video_fps', 8.0)
+        self.declare_parameter('video_quality', 55)
+        self.declare_parameter('video_annotate', True)
+
         # Video for the phone. Encoding costs Pi CPU, so it is throttled well
         # below the pipeline rate and only runs when something is subscribed:
         # nobody watching means no JPEGs made at all.
@@ -100,6 +107,10 @@ class PerceptionNode(Node):
         self.video_fps = float(self.get_parameter('video_fps').value)
         self.video_quality = int(self.get_parameter('video_quality').value)
         self.video_annotate = bool(self.get_parameter('video_annotate').value)
+        self._last_frame = 0.0
+        self.video_fps = float(self.get_parameter('video_fps').value)
+        self.video_quality = int(self.get_parameter('video_quality').value)
+        self.video_annotate = bool(self.get_parameter('video_annotate').value)
         self._last_frame_pub = 0.0
 
         self.locked_id = None
@@ -107,6 +118,7 @@ class PerceptionNode(Node):
         self.depths = deque(maxlen=self.depth_window)
 
         self.state_pub = self.create_publisher(String, 'target_state', 10)
+        self.image_pub = self.create_publisher(CompressedImage, 'camera/compressed', 2)
         self.image_pub = self.create_publisher(CompressedImage, 'camera/compressed', 2)
         self.create_subscription(String, 'target_lock', self._on_lock, 10)
 
@@ -271,6 +283,8 @@ class PerceptionNode(Node):
                 now = time.time()
                 fps = 20.0 / (now - t0)
                 t0 = now
+
+            self._publish_frame(qframe, pkt.tracklets)
 
             self._publish_frame(qframe, pkt.tracklets)
 

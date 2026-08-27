@@ -23,7 +23,7 @@ follow_node:
                               # confidence peaks, once testing on the ground.
     kp_throttle: 0.0004       # err is in mm: 1000 mm error -> 0.4, clamped to max
     kd_throttle: 0.0001
-    throttle_deadband_mm: 150.0   # +/-15 cm counts as "at the standoff"
+    throttle_deadband_mm: 300.0   # +/-30 cm counts as "at the standoff"
     # 0.365, not the measured 0.25 minimum. Magnus's call after driving it: 0.25
     # is where smoothness BEGINS, and sitting right on that edge leaves nothing
     # for the humps (carpet seams, a slight incline, a wheel catching). 0.365 also
@@ -40,7 +40,14 @@ follow_node:
                               # roll-in. The distance deadband is what makes that
                               # acceptable.
     max_throttle: 0.38        # the platform's calibrated ceiling
-    allow_reverse: true       # back off if the target closes inside the standoff
+    # Reverse OFF (2026-08-27, observed on the ground). With the throttle floor
+    # at 0.365 there is no slow speed, so the loop is bang-bang: it overshot the
+    # standoff, reversed, overshot the other way, and yo-yo'd around 1 m. Without
+    # reverse it drives up and stops, which is also the better behaviour on its
+    # own terms: a car backing away from someone walking toward it reads as
+    # skittish. The deadband was widened to 300 mm for the same reason, so the
+    # car does not restart every time the target shifts weight.
+    allow_reverse: false
     max_reverse: 0.382         # lower than max_throttle on purpose. Approaching and
                               # retreating are not symmetric: someone stepping
                               # toward the car makes a big negative error fast, and

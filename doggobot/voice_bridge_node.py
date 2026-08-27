@@ -32,9 +32,10 @@ import threading
 import rclpy
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
+from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import Bool, String
 
 def _web_dir():
@@ -93,6 +94,12 @@ class BridgeNode(Node):
         self.arbiter = {'armed': False}
         self.create_subscription(String, 'arbiter/status', self._on_arbiter, 10)
 
+        # Latest camera JPEG. Subscribing here is what makes perception_node
+        # encode at all, so the stream costs nothing until this node exists.
+        self.frame = None
+        self.create_subscription(
+            CompressedImage, 'camera/compressed', self._on_frame, 2)
+
         # NOT `self.clients`: rclpy.node.Node already defines `clients` as a
         # read-only property listing this node's service clients.
         self.client_count = 0
@@ -129,6 +136,9 @@ class BridgeNode(Node):
             self.behavior = json.loads(msg.data)
         except Exception:                                    # noqa: BLE001
             pass
+
+    def _on_frame(self, msg):
+        self.frame = bytes(msg.data)
 
     def _on_arbiter(self, msg):
         try:
@@ -216,6 +226,28 @@ def build_app(node: BridgeNode) -> FastAPI:
     @app.get('/apple-touch-icon.png')
     async def appleicon():
         return FileResponse(os.path.join(WEB_DIR, 'apple-touch-icon.png'))
+
+    @app.get('/stream.mjpg')
+    async def stream():
+        """MJPEG: the oldest trick, and the one that needs no client library.
+
+        An <img> pointed at this renders live video in any browser with no
+        JavaScript, no WebRTC negotiation, and no codec support to check.
+        """
+        async def frames():
+            last = None
+            while True:
+                buf = node.frame
+                if buf is not None and buf is not last:
+                    last = buf
+                    yield (b'--frame\r\nContent-Type: image/jpeg\r\n'
+                           b'Content-Length: ' + str(len(buf)).encode()
+                           + b'\r\n\r\n' + buf + b'\r\n')
+                await asyncio.sleep(0.05)
+
+        return StreamingResponse(
+            frames(),
+            media_type='multipart/x-mixed-replace; boundary=frame')
 
     @app.get('/healthz')
     async def healthz():
