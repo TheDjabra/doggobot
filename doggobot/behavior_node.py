@@ -55,6 +55,10 @@ Primitives:
     circle_right    forward with steering held right
     circle_left     forward with steering held left
     follow          relay the follow controller's output
+    color_react     TEST MODE: drive forward while green is seen, reverse while
+                    red is seen, stop otherwise. Continuous rather than
+                    sequenced, for tuning thresholds with the wheels up and
+                    without speaking.
 
 Every moving primitive is TIME-BOUNDED by default. "Forward" meaning "until
 further notice" is how a car ends up in a wall when a network drops; a duration
@@ -104,6 +108,10 @@ class BehaviorNode(Node):
         self.declare_parameter('default_seconds', 3.0)
         self.declare_parameter('circle_seconds', 6.0)
         self.declare_parameter('max_seconds', 15.0)
+        # The colour test mode is exempt from the short default because it is
+        # meant to be watched while tuning, but it is still bounded: an
+        # open-ended reactive mode is exactly the thing that drives off a bench.
+        self.declare_parameter('color_react_seconds', 300.0)
 
         # The on-robot microphone listens continuously and the vocabulary is made
         # of very common English words (stop, back, forward, wait, left, right).
@@ -122,6 +130,7 @@ class BehaviorNode(Node):
         self.default_s = float(g('default_seconds').value)
         self.circle_s = float(g('circle_seconds').value)
         self.max_s = float(g('max_seconds').value)
+        self.color_react_s = float(g('color_react_seconds').value)
         self.wake = str(g('wake_word').value).lower().strip()
         self.wake_sources = set(g('wake_word_sources').value or [])
 
@@ -409,10 +418,17 @@ class BehaviorNode(Node):
             self._release_lock()
 
         if seconds is None:
-            seconds = self.circle_s if action.startswith('circle') else self.default_s
-        seconds = max(0.5, min(self.max_s, seconds))
+            if action == 'color_react':
+                seconds = self.color_react_s
+            elif action.startswith('circle'):
+                seconds = self.circle_s
+            else:
+                seconds = self.default_s
+        cap = self.color_react_s if action == 'color_react' else self.max_s
+        seconds = max(0.5, min(cap, seconds))
 
-        if action not in ('wait', 'forward', 'reverse', 'circle_right', 'circle_left'):
+        if action not in ('wait', 'forward', 'reverse', 'circle_right',
+                          'circle_left', 'color_react'):
             self.get_logger().warn(f'unknown primitive: {action}')
             return
 
@@ -446,6 +462,17 @@ class BehaviorNode(Node):
             self.get_logger().info(f'{self.active} finished')
             self._enter(None, 0.0)
             self.cmd_pub.publish(Twist())
+            return
+
+        if self.active == 'color_react':
+            # Reactive, not sequenced: read the latest colour every tick.
+            seen = self.conditions.get('color')
+            cmd = Twist()
+            if seen == 'green':
+                cmd.linear.x = self.cruise
+            elif seen == 'red':
+                cmd.linear.x = -self.rev
+            self.cmd_pub.publish(cmd)
             return
 
         cmd = Twist()

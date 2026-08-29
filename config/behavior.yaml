@@ -31,3 +31,8 @@ behavior_node:
     # friction to the path that is already gated.
     wake_word: "atlas"
     wake_word_sources: ["onboard-mic"]
+
+    # Colour test mode runs long because it is meant to be watched while tuning
+    # thresholds. Still bounded: an open-ended reactive mode is exactly what
+    # drives off a bench when you look away.
+    color_react_seconds: 300.0

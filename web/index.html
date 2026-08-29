@@ -298,6 +298,17 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
       <button class="btn" id="csave">Save</button>
       <button class="btn" id="creset">Reset</button>
     </div>
+
+    <h2>Reaction test</h2>
+    <div class="row">
+      <button class="btn prim" data-act="color_react">Green=Fwd Red=Rev</button>
+      <button class="btn prim" data-act="stop">Stop</button>
+    </div>
+    <p class="note">
+      Wheels up. Drives forward while green is detected and reverses while red
+      is, so thresholds can be checked against real motion without speaking a
+      command. Requires ARM. Times out after five minutes.
+    </p>
     <p class="note">
       Matching pixels are tinted on the video above. Widen until the target is
       solidly covered, then narrow until nothing else is. Hue is which colour,
