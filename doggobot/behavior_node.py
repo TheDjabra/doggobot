@@ -168,6 +168,9 @@ class BehaviorNode(Node):
     UNTIL_RE = re.compile(
         r'^(?P<action>.+?)\s+(?:until|till|til)\s+(?:you\s+see\s+|there\s+is\s+)?'
         r'(?:the\s+)?(?P<color>green|red)\b')
+    # Anything conditional-looking at all, so an unrecognised condition can be
+    # refused rather than silently dropped.
+    CONDITIONAL_RE = re.compile(r'\b(?:until|till|til)\b')
 
     def _parse_step(self, text):
         """One spoken step, with an optional colour condition.
@@ -176,12 +179,21 @@ class BehaviorNode(Node):
         a single command share the same grammar: "forward until green" works on
         its own and as a link in "forward until green then circle left".
         """
-        m = self.UNTIL_RE.match(text.strip())
+        text = text.strip()
+        m = self.UNTIL_RE.match(text)
         if m:
             action = self._match(m.group('action'))
             if action:
                 return {'action': action, 'until': {'color': m.group('color')}}
             return None
+
+        # It asked for a condition and we could not parse the condition. Refusing
+        # is the only safe answer: dropping the condition turns "drive until you
+        # see green" into "drive for three seconds", which is a different and
+        # much worse instruction than the one that was given.
+        if self.CONDITIONAL_RE.search(text):
+            return None
+
         action = self._match(text)
         return {'action': action} if action else None
 
@@ -258,6 +270,10 @@ class BehaviorNode(Node):
             # A single step may still carry a condition: "forward until green".
             for i, text in enumerate(candidates):
                 step = self._parse_step(text)
+                if step is None and self.CONDITIONAL_RE.search(text):
+                    self.get_logger().warn(
+                        f'refused, condition not understood: "{text}"')
+                    return
                 if step:
                     note = '' if i == 0 else f' (alternative {i})'
                     if step.get('until'):
