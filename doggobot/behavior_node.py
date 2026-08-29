@@ -54,6 +54,9 @@ Primitives:
     reverse         straight back
     circle_right    forward with steering held right
     circle_left     forward with steering held left
+    figure_eight    a circle each way, expanded into a two-step sequence rather
+                    than special-cased, so it reuses the executor it would
+                    otherwise duplicate
     follow          relay the follow controller's output
     color_react     TEST MODE: drive forward while green is seen, reverse while
                     red is seen, stop otherwise. Continuous rather than
@@ -84,6 +87,7 @@ from std_msgs.msg import String
 # "back up" in the vocabulary it will happily return just "back". Matching only
 # full phrases meant a perfectly good recognition ("back") matched nothing.
 KEYWORDS = [
+    ('figure_eight', ('figure eight', 'figure of eight', 'figure 8', 'do a figure eight')),
     ('circle_right', ('circle right', 'circle to the right', 'turn circles right')),
     ('circle_left',  ('circle left', 'circle to the left', 'turn circles left')),
     ('reverse',      ('reverse', 'back up', 'go back', 'backward', 'backwards',
@@ -405,6 +409,18 @@ class BehaviorNode(Node):
             self.get_logger().info('stop')
             self._enter(None, 0.0)
             self.cmd_pub.publish(Twist())
+            return
+
+        # A figure-eight is just one circle each way. Expanding it into a
+        # sequence rather than adding a bespoke primitive means it inherits the
+        # executor's cancellation, timeouts and reporting for free.
+        if action == 'figure_eight':
+            half = seconds if seconds else self.circle_s
+            self.get_logger().info(f'figure eight, {half:.0f}s each way')
+            self._start_sequence([
+                {'action': 'circle_left', 'seconds': half},
+                {'action': 'circle_right', 'seconds': half},
+            ])
             return
 
         if action == 'follow':

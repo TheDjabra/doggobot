@@ -24,6 +24,7 @@ CASES = [
     ('phone-speech', 'forward until green'),
     ('phone-speech', 'forward until you see green then circle left then stop'),
     ('phone-speech', 'forward until purple'),        # unknown colour: reject
+    ('phone-speech', 'figure eight'),                # expands to a 2-step sequence
 ]
 
 
