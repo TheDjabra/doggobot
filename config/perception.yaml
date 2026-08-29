@@ -34,3 +34,12 @@ perception_node:
     video_fps: 8.0
     video_quality: 55
     video_annotate: true
+
+    # Colour cues for the mission statement. Runs on the same frames the video
+    # uses, because only one process can own the camera.
+    color_enabled: true
+    color_config_path: /home/projects/ros2_ws/src/doggobot/config/color_thresholds.json
+    color_hz: 5.0
+    # '' none, 'green'/'red' one mask, 'all' both. Tints matching pixels on the
+    # video feed so thresholds can be tuned by eye from the phone.
+    color_view: ""

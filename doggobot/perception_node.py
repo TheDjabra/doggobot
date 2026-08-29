@@ -60,6 +60,8 @@ from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
 from std_msgs.msg import String
 
+from doggobot.color import ColorDetector
+
 
 class PerceptionNode(Node):
 
@@ -90,6 +92,14 @@ class PerceptionNode(Node):
         self.declare_parameter('video_quality', 55)
         self.declare_parameter('video_annotate', True)
 
+        # Colour cues for the mission statement. Runs on the same frames the
+        # video already uses, because only one process can own the camera.
+        self.declare_parameter('color_enabled', True)
+        self.declare_parameter('color_config_path',
+                               '/home/projects/ros2_ws/src/doggobot/config/color_thresholds.json')
+        self.declare_parameter('color_hz', 5.0)
+        self.declare_parameter('color_view', '')   # '', 'green', 'red', 'all'
+
         self.archive_path = self.get_parameter('archive_path').value
         self.confidence = float(self.get_parameter('confidence').value)
         self.nn_fps = float(self.get_parameter('nn_fps').value)
@@ -101,18 +111,64 @@ class PerceptionNode(Node):
         self.video_annotate = bool(self.get_parameter('video_annotate').value)
         self._last_frame = 0.0
 
+        self.color_enabled = bool(self.get_parameter('color_enabled').value)
+        self.color_hz = float(self.get_parameter('color_hz').value)
+        self.color_view = str(self.get_parameter('color_view').value)
+        self.colors = ColorDetector(str(self.get_parameter('color_config_path').value))
+        self._last_color = 0.0
+        self._masks = {}
+        self._color_state = {'color': None, 'areas': {}}
+
         self.locked_id = None
         self.want_lock = bool(self.get_parameter('lock_on_start').value)
         self.depths = deque(maxlen=self.depth_window)
 
         self.state_pub = self.create_publisher(String, 'target_state', 10)
         self.image_pub = self.create_publisher(CompressedImage, 'camera/compressed', 2)
+        self.condition_pub = self.create_publisher(String, 'condition_state', 10)
+        self.create_subscription(String, 'color_config', self._on_color_config, 10)
         self.image_pub = self.create_publisher(CompressedImage, 'camera/compressed', 2)
+        self.condition_pub = self.create_publisher(String, 'condition_state', 10)
+        self.create_subscription(String, 'color_config', self._on_color_config, 10)
         self.create_subscription(String, 'target_lock', self._on_lock, 10)
 
         self.running = True
         self.get_logger().info(f'perception: {os.path.basename(self.archive_path)} '
                                f'conf {self.confidence} @ {self.nn_fps:.0f} fps req')
+
+    # -- colour ---------------------------------------------------------------
+
+    def _on_color_config(self, msg):
+        """Live threshold updates from the tuning page.
+
+        Tuning HSV by editing a file and restarting is unusable: you need to see
+        the mask change as you drag a slider. Thresholds are therefore data, sent
+        over a topic and optionally persisted.
+        """
+        try:
+            m = json.loads(msg.data)
+        except Exception:                                # noqa: BLE001
+            return
+        if m.get('view') is not None:
+            self.color_view = m['view']
+        for name in ('green', 'red'):
+            if name in m:
+                self.colors.update(name, m[name].get('ranges'),
+                                   m[name].get('min_area'))
+        if m.get('save'):
+            ok = self.colors.save()
+            self.get_logger().info(
+                f'colour thresholds {"saved" if ok else "NOT saved"}')
+
+    def _run_color(self, frame):
+        self._last_color = time.time()
+        label, areas, masks = self.colors.detect(frame)
+        self._masks = masks
+        self._color_state = {'color': label, 'areas': areas}
+        # Published continuously, including when nothing is seen, so a condition
+        # that stops being true is observable rather than merely stale.
+        self.condition_pub.publish(String(data=json.dumps(
+            {'color': label, 'areas': areas, 'stamp': self._last_color})))
 
     # -- lock control ---------------------------------------------------------
 
@@ -218,45 +274,64 @@ class PerceptionNode(Node):
                 self._publish_no_target(0.0, 'CAMERA_DOWN')
                 time.sleep(2.0)
 
-    def _publish_frame(self, qframe, tracklets):
-        """Encode a JPEG for the phone, at a throttled rate, only if watched."""
-        if self.video_fps <= 0 or self.image_pub.get_subscription_count() == 0:
-            return
+    def _on_frame(self, qframe, tracklets):
+        """One frame, two consumers: colour detection and (optionally) video.
+
+        Both want the same picture, and colour must see the RAW frame rather than
+        one with an overlay already drawn on it, so the order here matters:
+        fetch once, detect, then annotate a copy for the phone.
+        """
+        want_video = (self.video_fps > 0
+                      and self.image_pub.get_subscription_count() > 0)
         now = time.time()
-        if now - self._last_frame < 1.0 / self.video_fps:
+        video_due = want_video and (now - self._last_frame >= 1.0 / self.video_fps)
+        color_due = self.color_enabled and (
+            now - self._last_color >= 1.0 / self.color_hz)
+
+        if not (video_due or color_due):
+            qframe.tryGet()          # drain, or the queue backs up
             return
 
         pkt = qframe.tryGet()
         if pkt is None:
             return
         frame = pkt.getCvFrame()
+
+        if color_due:
+            self._run_color(frame)
+
+        if not video_due:
+            return
         self._last_frame = now
 
-        if self.video_annotate and tracklets:
+        if self.color_view and self._masks:
+            show = None if self.color_view == 'all' else self.color_view
+            frame = self.colors.overlay(frame, self._masks, show)
+
+        if self.video_annotate:
             h, w = frame.shape[:2]
             for t in tracklets:
-                status = str(t.status).split('.')[-1]
-                if status not in ('TRACKED', 'NEW', 'LOST'):
+                if str(t.status).split('.')[-1] not in ('TRACKED', 'NEW', 'LOST'):
                     continue
                 mine = (t.id == self.locked_id)
                 roi = t.roi.denormalize(w, h)
-                colour = ((0, 176, 255) if mine else (120, 120, 120))
+                colour = (0, 176, 255) if mine else (110, 110, 110)
                 cv2.rectangle(frame, (int(roi.x), int(roi.y)),
                               (int(roi.x + roi.width), int(roi.y + roi.height)),
                               colour, 2 if mine else 1)
                 if mine:
-                    z = t.spatialCoordinates.z
-                    cv2.putText(frame, f'{z / 1000:.2f}m', (int(roi.x), int(roi.y) - 6),
+                    cv2.putText(frame,
+                                f'{t.spatialCoordinates.z / 1000:.2f}m',
+                                (int(roi.x), max(14, int(roi.y) - 6)),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, colour, 1)
 
-        ok, jpg = cv2.imencode('.jpg', frame,
-                               [int(cv2.IMWRITE_JPEG_QUALITY), self.video_quality])
-        if not ok:
-            return
-        msg = CompressedImage()
-        msg.format = 'jpeg'
-        msg.data = jpg.tobytes()
-        self.image_pub.publish(msg)
+        ok, jpg = cv2.imencode(
+            '.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.video_quality])
+        if ok:
+            msg = CompressedImage()
+            msg.format = 'jpeg'
+            msg.data = jpg.tobytes()
+            self.image_pub.publish(msg)
 
     def _loop(self, q, qframe):
         frames, t0, fps = 0, time.time(), 0.0
@@ -272,9 +347,7 @@ class PerceptionNode(Node):
                 fps = 20.0 / (now - t0)
                 t0 = now
 
-            self._publish_frame(qframe, pkt.tracklets)
-
-            self._publish_frame(qframe, pkt.tracklets)
+            self._on_frame(qframe, pkt.tracklets)
 
             t = self._select(pkt.tracklets)
             if t is None:
