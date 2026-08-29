@@ -127,6 +127,18 @@ h2{font-family:var(--font-display);font-size:12px;letter-spacing:var(--track-wid
 .btn[disabled]{color:var(--c-ink-faint);border-color:rgb(216 214 207 / .06)}
 #softstop{width:100%;margin-bottom:18px}
 
+/* ── tuning ─────────────────────────────────────────────────────────── */
+.slider-row{display:grid;grid-template-columns:34px 1fr 42px;gap:8px;align-items:center;
+  font-size:11px;letter-spacing:var(--track);color:var(--c-ink-dim);margin-bottom:4px}
+.slider-row b{color:var(--c-ink);font-weight:400;font-variant-numeric:tabular-nums;text-align:right}
+.slider-row input{width:100%;accent-color:var(--c-accent)}
+.seg{display:flex;gap:0;border:var(--hairline-dim);margin-bottom:12px}
+.seg button{flex:1;padding:9px;background:transparent;border:0;color:var(--c-ink-dim);
+  font-family:var(--font-display);font-size:13px;letter-spacing:var(--track);
+  text-transform:uppercase;cursor:pointer}
+.seg button[aria-selected="true"]{background:var(--c-accent);color:#000}
+.detected{border:var(--hairline-dim);background:var(--c-bg-raise);padding:10px;margin-bottom:12px}
+
 /* ── video ──────────────────────────────────────────────────────────── */
 .videowrap{position:relative;margin-bottom:12px;background:#000;border:var(--hairline-dim)}
 .videowrap img{display:block;width:100%;height:auto}
@@ -213,6 +225,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
 <nav>
   <button id="tab-drive" aria-selected="true">Drive</button>
   <button id="tab-voice" aria-selected="false">Voice</button>
+  <button id="tab-tune" aria-selected="false">Tune</button>
 </nav>
 
 <main>
@@ -262,6 +275,37 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
         <div class="sticklabel">Steer <b id="val-s">0.00</b></div>
       </div>
     </div>
+  </section>
+
+  <section id="pane-tune" hidden>
+    <h2>Colour tuning</h2>
+    <div class="seg">
+      <button data-view="green" aria-selected="true">Green</button>
+      <button data-view="red" aria-selected="false">Red</button>
+    </div>
+
+    <div class="videowrap" id="tunevid"><img id="tuneimg" alt=""></div>
+
+    <div class="detected">
+      <div class="line">detected <b id="cdet" class="off">--</b></div>
+      <div class="line">green area <b id="cgreen">0</b></div>
+      <div class="line">red area <b id="cred">0</b></div>
+    </div>
+
+    <div id="sliders"></div>
+
+    <div class="row">
+      <button class="btn" id="csave">Save</button>
+      <button class="btn" id="creset">Reset</button>
+    </div>
+    <p class="note">
+      Matching pixels are tinted on the video above. Widen until the target is
+      solidly covered, then narrow until nothing else is. Hue is which colour,
+      saturation is how vivid, value is how bright: in poor light it is usually
+      the saturation and value floors that need lowering, not the hue.
+      Red occupies two hue bands because hue wraps around, so it has two sets.
+      Save writes the thresholds to the car so they survive a restart.
+    </p>
   </section>
 
   <section id="pane-voice" hidden>
@@ -317,6 +361,13 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
         $('prim').textContent = m.active || '--';
       }
       else if (m.type === 'arbiter') paintArm(!!m.armed);
+      else if (m.type === 'condition') {
+        const d = $('cdet');
+        d.textContent = m.color || 'none';
+        d.className = m.color ? 'on' : 'off';
+        $('cgreen').textContent = (m.areas && m.areas.green) || 0;
+        $('cred').textContent = (m.areas && m.areas.red) || 0;
+      }
     };
   }
   function send(o) {
@@ -487,16 +538,84 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
 
   // ── tabs ─────────────────────────────────────────────────────────────
   function tab(which) {
-    const drive = which === 'drive';
-    $('tab-drive').setAttribute('aria-selected', drive);
-    $('tab-voice').setAttribute('aria-selected', !drive);
-    $('pane-drive').hidden = !drive;
-    $('pane-voice').hidden = drive;
-    $('mode').textContent = drive ? 'DRIVE' : 'VOICE';
-    if (!drive) stopStream();
+    for (const n of ['drive', 'voice', 'tune']) {
+      $(`tab-${n}`).setAttribute('aria-selected', n === which);
+      $(`pane-${n}`).hidden = (n !== which);
+    }
+    $('mode').textContent = which.toUpperCase();
+    if (which !== 'drive') stopStream();
+    // The tuning view tints matching pixels, which is only wanted while tuning.
+    sendColor({ view: which === 'tune' ? colour : '' });
+    $('tuneimg').src = which === 'tune' ? `/stream.mjpg?t=${Date.now()}` : '';
   }
-  $('tab-drive').addEventListener('click', () => tab('drive'));
-  $('tab-voice').addEventListener('click', () => tab('voice'));
+  ['drive', 'voice', 'tune'].forEach(n =>
+    $(`tab-${n}`).addEventListener('click', () => tab(n)));
+
+  // ── colour tuning ────────────────────────────────────────────────────
+  // Thresholds are data, not code: they go over the socket and apply live, so a
+  // slider drag is visible on the video immediately. Tuning HSV by editing a
+  // file and restarting is unusable.
+  const LABELS = ['H lo', 'S lo', 'V lo', 'H hi', 'S hi', 'V hi'];
+  const MAXES = [179, 255, 255, 179, 255, 255];
+  const DEFAULTS = {
+    green: { ranges: [[35, 60, 40, 85, 255, 255]], min_area: 1500 },
+    red: { ranges: [[0, 90, 50, 10, 255, 255], [170, 90, 50, 179, 255, 255]], min_area: 1500 },
+  };
+  let cfg = JSON.parse(JSON.stringify(DEFAULTS));
+  let colour = 'green';
+
+  function sendColor(extra) {
+    send({ type: 'color', config: Object.assign({}, extra) });
+  }
+  function pushColour(save) {
+    const payload = { view: colour };
+    payload[colour] = cfg[colour];
+    if (save) payload.save = true;
+    send({ type: 'color', config: payload });
+  }
+
+  function buildSliders() {
+    const host = $('sliders');
+    host.innerHTML = '';
+    cfg[colour].ranges.forEach((range, ri) => {
+      if (cfg[colour].ranges.length > 1) {
+        const h = document.createElement('h2');
+        h.textContent = `Band ${ri + 1}`;
+        host.appendChild(h);
+      }
+      range.forEach((val, i) => {
+        const row = document.createElement('div');
+        row.className = 'slider-row';
+        row.innerHTML = `<span>${LABELS[i]}</span>
+          <input type="range" min="0" max="${MAXES[i]}" value="${val}">
+          <b>${val}</b>`;
+        const input = row.querySelector('input'), out = row.querySelector('b');
+        input.addEventListener('input', () => {
+          cfg[colour].ranges[ri][i] = parseInt(input.value, 10);
+          out.textContent = input.value;
+          pushColour(false);
+        });
+        host.appendChild(row);
+      });
+    });
+  }
+
+  document.querySelectorAll('.seg button').forEach(b => {
+    b.addEventListener('click', () => {
+      colour = b.dataset.view;
+      document.querySelectorAll('.seg button').forEach(
+        x => x.setAttribute('aria-selected', x === b));
+      buildSliders();
+      pushColour(false);
+    });
+  });
+  $('csave').addEventListener('click', () => pushColour(true));
+  $('creset').addEventListener('click', () => {
+    cfg = JSON.parse(JSON.stringify(DEFAULTS));
+    buildSliders();
+    pushColour(false);
+  });
+  buildSliders();
 
   // ── primitive buttons ────────────────────────────────────────────────
   // Buttons and speech converge on the same command path, so the car cannot

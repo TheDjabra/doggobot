@@ -78,6 +78,7 @@ class BridgeNode(Node):
         self.voice_pub = self.create_publisher(String, 'voice_cmd', 10)
         self.lock_pub = self.create_publisher(String, 'target_lock', 10)
         self.arm_pub = self.create_publisher(Bool, 'arm', 10)
+        self.color_pub = self.create_publisher(String, 'color_config', 10)
 
         # Latest perception state, pushed to the phone so the operator can see
         # WHAT the car is following rather than inferring it from behaviour.
@@ -93,6 +94,10 @@ class BridgeNode(Node):
 
         self.arbiter = {'armed': False}
         self.create_subscription(String, 'arbiter/status', self._on_arbiter, 10)
+
+        self.condition = {'color': None, 'areas': {}}
+        self.create_subscription(
+            String, 'condition_state', self._on_condition, 10)
 
         # Latest camera JPEG. Subscribing here is what makes perception_node
         # encode at all, so the stream costs nothing until this node exists.
@@ -139,6 +144,15 @@ class BridgeNode(Node):
 
     def _on_frame(self, msg):
         self.frame = bytes(msg.data)
+
+    def _on_condition(self, msg):
+        try:
+            self.condition = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            pass
+
+    def publish_color_config(self, cfg):
+        self.color_pub.publish(String(data=json.dumps(cfg)))
 
     def _on_arbiter(self, msg):
         try:
@@ -274,6 +288,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                         {'type': 'behavior', **node.behavior}))
                     await sock.send_text(json.dumps(
                         {'type': 'arbiter', **node.arbiter}))
+                    await sock.send_text(json.dumps(
+                        {'type': 'condition', **node.condition}))
                     await asyncio.sleep(0.2)
             except Exception:                                # noqa: BLE001
                 pass
@@ -287,6 +303,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                 if kind == 'teleop':
                     node.publish_teleop(msg.get('throttle', 0.0),
                                         msg.get('steering', 0.0))
+                elif kind == 'color':
+                    node.publish_color_config(msg.get('config', {}))
                 elif kind == 'arm':
                     node.publish_arm(bool(msg.get('armed', False)))
                 elif kind == 'estop':
