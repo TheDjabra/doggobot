@@ -789,3 +789,55 @@ its own veto. **A safety system must observe intent, not an outcome it is alread
 
 Verified on hardware: intent 0.365 forward, obstacle at 0.22 m, `control -> safety`, then
 `clear` and `control -> behavior` once the path opened.
+
+### The LLM slow path (2026-08-29)
+
+`llm_node`: `/voice_unparsed` in, a structured command out on `/voice_cmd`. When the keyword
+parser fails to match an utterance, `behavior_node` publishes the text rather than just logging
+it, and this node may turn it into a sequence.
+
+**A separate node, not inside `behavior_node`.** That node runs the control loop, and a blocking
+network call inside it would stall the primitives. This way the fast path never waits on the slow
+path.
+
+**Self-hosted by choice.** Ollama on Rasputin (RTX 3070, 8 GB) reached over Tailscale, rather
+than a vendor API. Two reasons. Everything else in the project already runs on hardware we
+control, so the parser matching that is consistent rather than special. And as a demonstration,
+"the language model runs on a machine I own" is a materially different claim from "I called an
+API" — Magnus's framing, and it is the right one.
+
+**The schema is the safety mechanism, not the prompt.** Ollama constrains decoding to a JSON
+schema whose `action` and `until_color` fields are enums of the primitives that actually exist,
+so the model **cannot emit an action the car does not have**. Same trick as the Vosk grammar on
+the microphone: rather than trusting a model to behave, make misbehaviour unrepresentable.
+
+**It refuses rather than approximates.** The prompt requires `understood: false` for anything it
+cannot express, and the test set includes "make me a sandwich" to check. Third time this
+principle has come up: a wrong guess makes the car do something nobody asked for.
+
+**It can only ever add.** Unreachable, slow, or nonsense responses all end in the utterance being
+dropped, and the car behaves exactly as it does with no LLM at all. Verified: with Ollama not yet
+installed, the node logs `llm unreachable` and everything else runs normally. The keyword path
+covers every graded requirement on its own, so this tier must never become load-bearing.
+
+Also: one request at a time. Queueing utterances would let the car act on something said several
+seconds ago, which is worse than ignoring it.
+
+#### Model choice, and why capability barely matters here
+
+Considered Kimi K3 (2.8T parameters, MoE with 104B active, open weights, July 2026). It cannot
+run on 8 GB by any route: even at 4-bit the weights exceed a terabyte, and MoE does not help
+because all experts must be resident. It is an API model, which is the thing we were avoiding.
+
+More usefully: **the parser's task is mapping words onto an enum that already exists**, and the
+schema has already constrained the output space to seven actions and two colours. A frontier
+model cannot do that better than a 7B, because there is no room to be better. Same reasoning that
+made a 68 MB Vosk model adequate for the microphone.
+
+Picked `qwen2.5:7b-instruct` (~4.5 GB at Q4): strong at instruction-following and JSON, leaves
+headroom on the card, fast. `llama3.1:8b-instruct` is an equally reasonable swap, one string in
+`config/llm.yaml`.
+
+**Setup gotcha for whoever runs the host:** Ollama binds `127.0.0.1` by default. Set
+`OLLAMA_HOST=0.0.0.0:11434` and restart it, or nothing off that machine can reach it. This is the
+single most common reason a local model "works on my machine".
