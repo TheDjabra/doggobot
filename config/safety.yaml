@@ -24,3 +24,8 @@ safety_node:
     min_points: 3
 
     publish_hz: 20.0
+
+    # How long an intent stays live after the last command from behaviour or
+    # teleop. Slightly longer than the arbiter's own staleness window, so the
+    # guard does not release its veto a moment before the car actually stops.
+    intent_timeout_s: 0.7

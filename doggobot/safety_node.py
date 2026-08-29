@@ -28,9 +28,17 @@ covers them.
 **Sector windows depend on what the car is doing.** Reversing cares about behind,
 driving cares about ahead, and applying a rear threshold while driving forward
 would stop the car for a wall it is leaving.
+
+**Direction of travel is read from the arbiter's INPUTS, not from /cmd_vel.**
+Using the output would be circular: the guard vetoes /cmd_vel, so /cmd_vel goes
+to zero, so the guard concludes the car is stationary, releases the veto, and the
+car lurches forward again. Watching /behavior_cmd and /teleop_cmd sees what the
+car is *trying* to do, which is unaffected by the veto and is the question that
+actually matters.
 """
 import json
 import math
+import time
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -63,6 +71,10 @@ class SafetyNode(Node):
         # sensor, which made their robot freeze.
         self.declare_parameter('min_points', 3)
         self.declare_parameter('publish_hz', 20.0)
+        # How long an intent stays live after the last command. Slightly longer
+        # than the arbiter's own staleness window so the guard does not release
+        # a moment before the car actually stops.
+        self.declare_parameter('intent_timeout_s', 0.7)
 
         g = self.get_parameter
         self.offset = math.radians(float(g('forward_offset_deg').value))
@@ -73,15 +85,19 @@ class SafetyNode(Node):
         self.side_stop = float(g('side_stop_m').value)
         self.min_points = int(g('min_points').value)
         self.hz = float(g('publish_hz').value)
+        self.intent_timeout = float(g('intent_timeout_s').value)
 
         self.sectors = {'front': 99.0, 'rear': 99.0, 'left': 99.0, 'right': 99.0}
-        self.moving = 0.0            # sign of the last commanded throttle
+        self.intent = 0.0            # throttle the car is TRYING to apply
+        self.intent_at = 0.0
         self.blocked = None
 
         self.cmd_pub = self.create_publisher(Twist, 'safety_cmd', 10)
         self.state_pub = self.create_publisher(String, 'obstacle_state', 10)
         self.create_subscription(LaserScan, 'scan', self._on_scan, 10)
-        self.create_subscription(Twist, 'cmd_vel', self._on_cmd, 10)
+        # The arbiter's inputs, not its output. See the circularity note above.
+        self.create_subscription(Twist, 'behavior_cmd', self._on_intent, 10)
+        self.create_subscription(Twist, 'teleop_cmd', self._on_intent, 10)
         self.create_timer(1.0 / self.hz, self._tick)
 
         self.get_logger().info(
@@ -91,9 +107,11 @@ class SafetyNode(Node):
 
     # -- inputs ---------------------------------------------------------------
 
-    def _on_cmd(self, msg):
-        """What the car is actually doing, so the right sector is watched."""
-        self.moving = msg.linear.x
+    def _on_intent(self, msg):
+        """What the car is TRYING to do, so the right sector is watched."""
+        if abs(msg.linear.x) > 0.01:
+            self.intent = msg.linear.x
+            self.intent_at = time.time()
 
     @staticmethod
     def _wrap(a):
@@ -131,16 +149,18 @@ class SafetyNode(Node):
 
     def _hazard(self):
         """Which sector, if any, currently justifies stopping the car."""
-        if self.moving > 0.01 and self.sectors['front'] < self.front_stop:
+        if time.time() - self.intent_at > self.intent_timeout:
+            return None                      # nothing is trying to move
+
+        if self.intent > 0 and self.sectors['front'] < self.front_stop:
             return 'front'
-        if self.moving < -0.01 and self.sectors['rear'] < self.rear_stop:
+        if self.intent < 0 and self.sectors['rear'] < self.rear_stop:
             return 'rear'
         # Flanks matter whenever moving at all: the car steers as it drives, so a
         # wall alongside becomes a wall ahead a moment later.
-        if abs(self.moving) > 0.01:
-            for side in ('left', 'right'):
-                if self.sectors[side] < self.side_stop:
-                    return side
+        for side in ('left', 'right'):
+            if self.sectors[side] < self.side_stop:
+                return side
         return None
 
     def _tick(self):
@@ -156,6 +176,8 @@ class SafetyNode(Node):
 
         self.state_pub.publish(String(data=json.dumps({
             'blocked': hazard,
+            'intent': round(self.intent, 3) if (
+                time.time() - self.intent_at <= self.intent_timeout) else 0.0,
             'sectors': {k: (round(v, 2) if v < 99 else None)
                         for k, v in self.sectors.items()},
         })))
