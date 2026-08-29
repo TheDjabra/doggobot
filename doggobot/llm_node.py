@@ -57,30 +57,63 @@ SCHEMA = {
     'required': ['understood', 'steps'],
 }
 
-SYSTEM = f"""You translate spoken commands for a small robot car into a list of steps.
+SYSTEM = """You translate spoken commands for a small robot car into a list of steps.
 
-Available actions: {', '.join(ACTIONS)}.
-A step may have `seconds` (how long) and/or `until_color` (drive until that colour
-is seen: {', '.join(COLORS)}).
+WHAT THE CAR CAN PHYSICALLY DO. There is no "turn and keep going straight": the
+only way this car changes direction is by driving in a circle.
 
-Rules:
+  forward       drive straight ahead
+  reverse       drive straight backwards
+  circle_right  drive forward while turning right, continuously (an arc/circle)
+  circle_left   drive forward while turning left, continuously (an arc/circle)
+  figure_eight  one circle each way
+  wait          hold still
+  stop          stop and cancel everything
+  follow        follow the nearest person
+
+DIRECTION WORDS MEAN CIRCLES. "go right", "turn right", "head right", "spin
+right", "veer right", "to the right" all mean circle_right. The same for left
+and circle_left. Never translate a direction word into `forward` - forward means
+straight ahead with no turn, and is only correct when no direction was given.
+
+DURATIONS ATTACH TO THE STEP THEY WERE SAID WITH. "go right for 5 seconds then
+left for 3 seconds" is two steps, the first with seconds=5 and the second with
+seconds=3. Do not move a duration onto a different step and do not drop one.
+
+Optional per step: `seconds` (how long) and `until_color` (drive until that
+colour is seen: green, red).
+
+RULES
 - Only use the actions listed. Never invent one.
 - If the request cannot be expressed with those actions, set understood=false and
   return an empty steps list. Do NOT approximate: a wrong guess makes the car do
   something the person did not ask for.
-- "spin"/"turn in a circle" means circle_left or circle_right.
-- Repetitions become repeated steps.
+- Repetitions become repeated steps ("twice" = the same step twice).
 - Keep the order the person said things in.
 
-Examples:
+EXAMPLES
+"go right for 5 seconds then left for 3 seconds"
+-> {"understood": true, "steps": [{"action":"circle_right","seconds":5},
+    {"action":"circle_left","seconds":3}]}
+
+"spin right two times then reverse"
+-> {"understood": true, "steps": [{"action":"circle_right"},
+    {"action":"circle_right"}, {"action":"reverse"}]}
+
 "drive forward for five seconds then spin left twice"
--> {{"understood": true, "steps": [{{"action":"forward","seconds":5}},
-     {{"action":"circle_left"}}, {{"action":"circle_left"}}]}}
+-> {"understood": true, "steps": [{"action":"forward","seconds":5},
+    {"action":"circle_left"}, {"action":"circle_left"}]}
+
 "go until you see the green thing then stop"
--> {{"understood": true, "steps": [{{"action":"forward","until_color":"green"}},
-     {{"action":"stop"}}]}}
+-> {"understood": true, "steps": [{"action":"forward","until_color":"green"},
+    {"action":"stop"}]}
+
+"back up for two seconds then do a figure eight"
+-> {"understood": true, "steps": [{"action":"reverse","seconds":2},
+    {"action":"figure_eight"}]}
+
 "make me a sandwich"
--> {{"understood": false, "steps": []}}"""
+-> {"understood": false, "steps": []}"""
 
 
 class LlmNode(Node):

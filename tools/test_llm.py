@@ -12,10 +12,17 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 CASES = [
-    'drive forward for five seconds then spin left twice',
-    'go until you see the green thing and then stop',
-    'back up a little bit and then do a figure eight',
-    'make me a sandwich',                       # must come back not understood
+    # Direction words must become circles, and each duration must stay with its
+    # own step. Both were wrong before the prompt was rewritten.
+    ('go right for 5 seconds then left for 3 seconds',
+     'circle_right(5) -> circle_left(3)'),
+    ('spin right two times then reverse',
+     'circle_right -> circle_right -> reverse'),
+    ('drive forward for five seconds then spin left twice',
+     'forward(5) -> circle_left -> circle_left'),
+    ('go until you see the green thing and then stop',
+     'forward(until green) -> stop'),
+    ('make me a sandwich', 'not understood'),
 ]
 
 
@@ -34,8 +41,9 @@ def main():
         print('llm_node is not subscribed to /voice_unparsed. Is it running?')
         return 1
 
-    for text in CASES:
+    for text, expected in CASES:
         print(f'\n>>> {text!r}')
+        print(f'    expect: {expected}')
         seen.clear()
         pub.publish(String(data=json.dumps({'text': text, 'source': 'test'})))
         t0 = time.time()
