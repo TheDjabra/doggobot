@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""On-robot speech: USB microphone -> /voice_cmd.
+"""On-robot speech: USB microphone -> /voice_cmd, and -> /voice_unparsed.
 
 The close-range half of the voice design. Walk up to the car and talk to it, no
 phone required. The phone covers distance; this covers standing next to it.
@@ -72,6 +72,17 @@ class SttNode(Node):
         self.declare_parameter('sample_rate', 16000)
         self.declare_parameter('use_grammar', True)
         self.declare_parameter('min_words', 1)
+        # A SECOND, unconstrained recogniser on the same audio, used only when
+        # the grammar produced nothing. The grammar cannot emit words outside the
+        # command vocabulary, which is exactly what makes it reliable and also
+        # what makes it useless for the LLM tier: it can never produce "for five
+        # seconds". Free-form fills that gap without weakening the fast path.
+        #
+        # Deliberately NOT merged into one transcript. The keyword matcher is
+        # substring-based, so a free-form "drive forward for five seconds then
+        # spin left twice" contains "forward" and would match a plain forward
+        # primitive, silently running a fragment of what was said.
+        self.declare_parameter('freeform', True)
 
         g = self.get_parameter
         self.model_path = str(g('model_path').value)
@@ -79,9 +90,12 @@ class SttNode(Node):
         self.rate = int(g('sample_rate').value)
         self.use_grammar = bool(g('use_grammar').value)
         self.min_words = int(g('min_words').value)
+        self.freeform = bool(g('freeform').value)
 
         self.pub = self.create_publisher(String, 'voice_cmd', 10)
         self.heard_pub = self.create_publisher(String, 'stt_heard', 10)
+        # Straight to the slow path, bypassing the keyword matcher entirely.
+        self.unparsed_pub = self.create_publisher(String, 'voice_unparsed', 10)
 
         self.audio = queue.Queue()
         self.running = True
@@ -160,6 +174,14 @@ class SttNode(Node):
             self.get_logger().info('free-form recognition')
         rec.SetWords(False)
 
+        # Second pass, sharing the model (only the recogniser state is per-pass,
+        # so this costs decoding time rather than another 68 MB).
+        free = None
+        if self.freeform and self.use_grammar:
+            free = KaldiRecognizer(model, self.rate)
+            free.SetWords(False)
+            self.get_logger().info('free-form second pass enabled (for the LLM)')
+
         dev = None
         if self.device:
             dev = int(self.device) if self.device.isdigit() else self.device
@@ -172,10 +194,26 @@ class SttNode(Node):
                 except queue.Empty:
                     continue
                 data = self._to_vosk(data)
-                if not rec.AcceptWaveform(data):
+                final = rec.AcceptWaveform(data)
+                free_final = free.AcceptWaveform(data) if free else False
+                if not final:
                     continue
                 text = json.loads(rec.Result()).get('text', '').strip()
+                free_text = ''
+                if free:
+                    # Flush whether or not the free pass called it final, so both
+                    # decoders report on the same utterance boundary.
+                    free_text = json.loads(
+                        free.Result() if free_final else free.FinalResult()
+                    ).get('text', '').strip()
                 if not text or text == '[unk]':
+                    # Grammar heard nothing it recognises. If the free pass heard
+                    # words, hand them to the LLM rather than discarding them.
+                    if free_text and len(free_text.split()) >= 2:
+                        self.get_logger().info(f'free-form: {free_text!r} -> llm')
+                        self.heard_pub.publish(String(data=f'(freeform) {free_text}'))
+                        self.unparsed_pub.publish(String(data=json.dumps(
+                            {'text': free_text, 'source': 'onboard-mic-freeform'})))
                     continue
                 # Strip the unknown-token filler the grammar emits for anything
                 # outside the vocabulary, so "uhh stop" still reads as "stop".

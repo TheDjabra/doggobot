@@ -18,3 +18,17 @@ stt_node:
     use_grammar: true
 
     min_words: 1
+
+    # Run a second, unconstrained recogniser on the same audio, used ONLY when
+    # the grammar produced nothing, and sent straight to the LLM.
+    #
+    # The grammar cannot emit words outside the command vocabulary, which is what
+    # makes it reliable and also what makes it useless for the LLM tier: it can
+    # never produce "for five seconds". This fills that gap without weakening the
+    # fast path.
+    #
+    # The two transcripts are deliberately NOT merged. The keyword matcher is
+    # substring-based, so a free-form "drive forward for five seconds then spin
+    # left twice" contains "forward" and would match a plain forward primitive,
+    # silently running a fragment of what was said.
+    freeform: true
