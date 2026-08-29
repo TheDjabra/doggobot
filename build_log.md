@@ -841,3 +841,32 @@ headroom on the card, fast. `llama3.1:8b-instruct` is an equally reasonable swap
 **Setup gotcha for whoever runs the host:** Ollama binds `127.0.0.1` by default. Set
 `OLLAMA_HOST=0.0.0.0:11434` and restart it, or nothing off that machine can reach it. This is the
 single most common reason a local model "works on my machine".
+
+#### The LLM tier working (2026-08-29)
+
+| Utterance | Parsed to | Time |
+|---|---|---|
+| "drive forward for five seconds then spin left twice" | forward -> circle_left -> circle_left | 0.8 s |
+| "go until you see the green thing and then stop" | forward -> stop | 0.6 s |
+| "back up a little bit and then do a figure eight" | reverse -> figure_eight | 0.4 s |
+| "make me a sandwich" | **not understood** | 0.3 s |
+
+All correct, including counting "twice" into two steps, mapping "spin left" onto a primitive that
+is not named that, and refusing the nonsense rather than approximating.
+
+**Two fixes were needed, and both are worth remembering.**
+
+**The model was never slow, it was unloaded.** Cold: 50.9 s to load 4.7 GB into VRAM. Warm:
+0.34 s. Ollama evicts after five minutes idle by default, which would have meant a 50-second wait
+for the first command of every demo, and again after any pause. Fixed by keeping it resident
+(`keep_alive`) and warming at node startup. This is the same shape as the "starting is not
+running" throttle lesson: the first measurement described a state, not the steady state.
+
+**`keep_alive` means different things depending on its JSON type.** A *string* is parsed as a Go
+duration, so `"-1"` fails with `missing unit in duration`; the *number* `-1` means never evict.
+The node now converts numeric-looking config values to a JSON number, so either spelling works in
+YAML.
+
+**Result worth stating plainly**: sub-second parsing on our own hardware. The whole voice stack
+now runs on machines we own — speech offline on the Pi or in the phone's browser, detection on the
+camera's VPU, language parsing on the desktop. Nothing about a spoken command leaves the network.
