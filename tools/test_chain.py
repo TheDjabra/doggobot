@@ -20,6 +20,10 @@ CASES = [
     ('onboard-mic', 'atlas forward then circle left'),
     ('onboard-mic', 'forward then stop'),          # no wake word: must be ignored
     ('phone-speech', 'forward then jump then stop'),  # unknown step: reject chain
+    # Conditional steps, the mission statement's actual shape
+    ('phone-speech', 'forward until green'),
+    ('phone-speech', 'forward until you see green then circle left then stop'),
+    ('phone-speech', 'forward until purple'),        # unknown colour: reject
 ]
 
 
