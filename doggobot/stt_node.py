@@ -56,6 +56,8 @@ PHRASES = [
     # Chain separators, so a spoken sequence survives the constrained grammar:
     # "atlas forward then circle left then stop".
     'then', 'and',
+    # Conditional steps: "atlas forward until green then stop".
+    'until', 'green', 'red', 'you', 'see', 'the',
 ]
 
 

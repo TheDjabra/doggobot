@@ -65,6 +65,7 @@ The same idea as fall-2024 Team 12 packing a timeout into their command messages
 structural: commanding anything else stops following, with no arbitration needed.
 """
 import json
+import re
 import time
 
 import rclpy
@@ -163,6 +164,27 @@ class BehaviorNode(Node):
         parts = [p.strip() for p in t.split('|')]
         return [p for p in parts if p]
 
+    # "forward until green", "go forward till you see red"
+    UNTIL_RE = re.compile(
+        r'^(?P<action>.+?)\s+(?:until|till|til)\s+(?:you\s+see\s+|there\s+is\s+)?'
+        r'(?:the\s+)?(?P<color>green|red)\b')
+
+    def _parse_step(self, text):
+        """One spoken step, with an optional colour condition.
+
+        Returns a step dict or None. Splitting this out is what lets a chain and
+        a single command share the same grammar: "forward until green" works on
+        its own and as a link in "forward until green then circle left".
+        """
+        m = self.UNTIL_RE.match(text.strip())
+        if m:
+            action = self._match(m.group('action'))
+            if action:
+                return {'action': action, 'until': {'color': m.group('color')}}
+            return None
+        action = self._match(text)
+        return {'action': action} if action else None
+
     def _match(self, text):
         t = ' '.join(text.lower().split())
         for name, phrases in KEYWORDS:
@@ -217,8 +239,8 @@ class BehaviorNode(Node):
                 parts = self._split_chain(text)
                 if len(parts) < 2:
                     continue
-                steps = [{'action': self._match(p)} for p in parts]
-                if all(st['action'] for st in steps):
+                steps = [self._parse_step(p) for p in parts]
+                if all(steps):
                     self.get_logger().info(
                         f'"{text}" -> sequence of {len(steps)}')
                     self._start_sequence(steps)
@@ -228,15 +250,23 @@ class BehaviorNode(Node):
                 # which would execute a FRAGMENT of what was asked for: saying
                 # "forward then jump then stop" and getting a car that just
                 # drives forward is worse than getting nothing.
-                missed = [p for p, st in zip(parts, steps) if not st['action']]
+                missed = [p for p, st in zip(parts, steps) if not st]
                 self.get_logger().warn(
                     f'chain refused, no primitive for {missed} in "{text}"')
                 return
 
+            # A single step may still carry a condition: "forward until green".
             for i, text in enumerate(candidates):
-                action = self._match(text)
-                if action:
+                step = self._parse_step(text)
+                if step:
                     note = '' if i == 0 else f' (alternative {i})'
+                    if step.get('until'):
+                        self.get_logger().info(
+                            f'"{text}" -> {step["action"]} until '
+                            f'{step["until"]}{note}')
+                        self._start_sequence([step])
+                        return
+                    action = step['action']
                     self.get_logger().info(f'"{text}" -> {action}{note}')
                     break
             if not action:
