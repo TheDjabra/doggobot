@@ -1,0 +1,21 @@
+llm_node:
+  ros__parameters:
+    # Self-hosted on Rasputin (RTX 3070), reached over Tailscale. MagicDNS
+    # resolves the name from anywhere, so this works from campus as well as home.
+    #
+    # Ollama binds 127.0.0.1 by default. On the host machine, set
+    # OLLAMA_HOST=0.0.0.0:11434 and restart it, or nothing else can reach it.
+    # That is the single most common reason a local model "works on my machine".
+    host: "http://rasputin:11434"
+
+    # 7B at Q4 is ~4.5 GB, comfortable on 8 GB VRAM. The schema does the hard
+    # part, so this only has to map words onto an enum that already exists.
+    model: "qwen2.5:7b-instruct"
+
+    # Generous, because this is the slow path by design. If it times out the
+    # utterance is dropped and the car behaves as it does with no LLM at all.
+    timeout_s: 12.0
+
+    # A parsed sequence longer than this is more likely a model that has run away
+    # than something a person actually said.
+    max_steps: 8

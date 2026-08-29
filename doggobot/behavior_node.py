@@ -150,6 +150,11 @@ class BehaviorNode(Node):
         self.cmd_pub = self.create_publisher(Twist, 'behavior_cmd', 10)
         self.lock_pub = self.create_publisher(String, 'target_lock', 10)
         self.state_pub = self.create_publisher(String, 'behavior_state', 10)
+        # Utterances the keyword parser could not handle. llm_node picks these up
+        # and may publish a structured command back to /voice_cmd. Escalation is
+        # a separate node on purpose: this one runs the control loop, and a
+        # blocking network call inside it would stall the primitives.
+        self.unparsed_pub = self.create_publisher(String, 'voice_unparsed', 10)
 
         self.create_subscription(String, 'voice_cmd', self._on_command, 10)
         self.create_subscription(Twist, 'follow_cmd', self._on_follow, 10)
@@ -303,6 +308,10 @@ class BehaviorNode(Node):
                     f'no primitive matched: {candidates[0]!r}'
                     + (f' (+{len(candidates) - 1} alternatives)'
                        if len(candidates) > 1 else ''))
+                # Hand it to the slow path. If nothing is listening, this is a
+                # message into the void and the system behaves exactly as before.
+                self.unparsed_pub.publish(String(data=json.dumps(
+                    {'text': candidates[0], 'source': source})))
                 return
 
         if action == 'sequence':
