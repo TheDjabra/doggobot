@@ -19,7 +19,12 @@ llm_node:
 
     # Keep the model resident in VRAM. Measured cold load: 50.9 s for 4.7 GB;
     # warm: 0.34 s. The model is not slow, it is unloaded, and Ollama's 5 minute
-    # default would evict it between demo commands. "-1" means never evict.
+    # default would evict it between demo commands.
+    #
+    # Ollama parses a STRING as a Go duration ("30m", "24h") and a NUMBER as
+    # seconds, where -1 means never evict. "-1" as a string fails with
+    # `missing unit in duration`, so the node converts numeric-looking values to
+    # a JSON number before sending.
     keep_alive: "-1"
 
     # Load it at startup so the first real command never pays the cold cost.

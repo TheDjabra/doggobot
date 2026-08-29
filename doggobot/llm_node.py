@@ -106,7 +106,14 @@ class LlmNode(Node):
         self.model = str(g('model').value)
         self.timeout = float(g('timeout_s').value)
         self.max_steps = int(g('max_steps').value)
-        self.keep_alive = str(g('keep_alive').value)
+        # Ollama parses a STRING keep_alive as a Go duration, so "-1" fails with
+        # `missing unit in duration`. A NUMBER is seconds, and -1 means never
+        # evict. Accept either spelling in config and send the right JSON type.
+        raw_keep = str(g('keep_alive').value).strip()
+        try:
+            self.keep_alive = int(raw_keep)
+        except ValueError:
+            self.keep_alive = raw_keep      # a duration like "30m" passes through
         self.warm_on_start = bool(g('warm_on_start').value)
 
         self.pub = self.create_publisher(String, 'voice_cmd', 10)
