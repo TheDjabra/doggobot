@@ -250,7 +250,18 @@ class LlmNode(Node):
                 step['until'] = {'color': st['until_color']}
             steps.append(step)
 
-        summary = ' -> '.join(s['action'] for s in steps)
+        def describe(st):
+            bits = st['action']
+            if st.get('seconds'):
+                bits += f"({st['seconds']:g}s)"
+            if st.get('until'):
+                bits += f"(until {st['until']['color']})"
+            return bits
+
+        # Include the arguments, not just the action names. Reporting only the
+        # actions hid a real bug: the sequence looked right while durations were
+        # being dropped or attached to the wrong step.
+        summary = ' -> '.join(describe(s) for s in steps)
         self.get_logger().info(f'"{text}" -> {summary} ({dt:.1f}s)')
         self._status('parsed', text, summary)
 
