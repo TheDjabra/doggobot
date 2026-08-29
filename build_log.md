@@ -706,3 +706,86 @@ The duplicated video code that crashed `perception_node` at startup
 (`ParameterAlreadyDeclaredException: ['video_fps']`) came from an edit that had partially applied
 before an interruption. I assumed an interrupted tool call meant nothing was written. **Check
 file state after an interruption instead of assuming it was atomic.**
+
+---
+
+## 2026-08-29 - Colour detection, conditional commands, LiDAR guard
+
+### Colour detection
+
+HSV thresholding in `doggobot/color.py`, run inside `perception_node` because only one process
+can own the camera. Publishes `/condition_state` at 5 Hz, which the sequencer's `until` hook was
+already waiting for, so this was a publisher rather than a rewrite.
+
+**Red needs two hue bands.** OpenCV maps hue to 0-179 and red sits at *both* ends, roughly 0-10
+and 170-179, so a single range cannot express it. This is the classic HSV mistake and it presents
+as "red sort of works", which is worse than failing outright.
+
+**Largest contour, not total pixel count.** A wall speckled with matching pixels should not
+outvote an actual object.
+
+**Thresholds are data, not code**: loaded from and saved to JSON, updated live over a topic. A
+phone tab has per-channel sliders and tints matching pixels on the video feed, so tuning is done
+by eye at the venue rather than by editing a file and restarting.
+
+**Tuning is deferred to the venue.** The demo is indoors at 11:30 on Friday with room lighting
+plus daylight through large windows, which means **mixed colour temperature**: the same target
+reads a different hue depending on which source dominates where it stands. Thresholds tuned in a
+bedroom will not transfer. Also worth doing then: lock the camera's white balance and exposure,
+because auto-WB actively changes colour rendition as the car moves, which invalidates any fixed
+threshold.
+
+`color_react` test mode drives forward on green and reverses on red, continuously, from a button.
+It exists so thresholds can be checked against real motion with the wheels up and without
+speaking. Bounded at five minutes: an open-ended reactive mode is exactly what drives off a bench
+while you are looking at your phone.
+
+### Conditional commands
+
+"forward until green" and "forward until you see green then circle left then stop" now parse
+into conditional steps, with no LLM involved.
+
+**An unrecognised condition is refused, not dropped.** The first version fell back to plain
+keyword matching, so "forward until purple" drove the car forward for three seconds. Dropping a
+condition you did not understand turns "drive until you see green" into "drive for three
+seconds", which is a different and much worse instruction than the one given. Same principle as
+the chain refusal added on 2026-08-27.
+
+### LiDAR proximity guard
+
+`safety_node`: `/scan` to `/safety_cmd`, finally giving the arbiter's safety input a publisher.
+Covers the ~290 degrees the camera cannot see, which is the reason the LiDAR is on the car at all.
+
+| Sector | Stop | Why |
+|---|---|---|
+| front | 0.45 m | **inside** the 1.0 m follow standoff |
+| rear | 0.35 m | nothing else watches behind, and reversing is in the demo |
+| side | 0.25 m | camera never sees them; tight because the car steers as it drives |
+
+**Front must stay inside the follow standoff.** The person being followed is an obstacle as far
+as the LiDAR is concerned, so a front threshold at or above the standoff would deadlock the
+follow controller against the guard permanently.
+
+**Publishes only while intervening.** The arbiter ranks safety above everything but the e-stop,
+so a continuously publishing guard would veto the entire system forever. Silence plus the
+arbiter's staleness timeout is what makes the veto momentary.
+
+**Nth-smallest range, not the minimum**, so a lone spurious return cannot trip it. Spring-2023
+Team 10 documented open areas producing phantom close points on this sensor class, which froze
+their robot.
+
+**Orientation was measured, not assumed.** `tools/lidar_sectors.py` prints a live compass so a
+moving object can be told apart from furniture; a single snapshot cannot. Result:
+`forward_offset_deg: 0.0`, the LiDAR's zero already points forward.
+
+#### The circularity bug, worth remembering
+
+The first version read `/cmd_vel` to decide which direction the car was travelling. But
+`/cmd_vel` is the arbiter's **output**, which this node vetoes. Stop the car, the output goes to
+zero, the guard concludes nothing is moving, releases the veto, the car lurches, repeat.
+
+It now reads `/behavior_cmd` and `/teleop_cmd`: the arbiter's **inputs**, which are unaffected by
+its own veto. **A safety system must observe intent, not an outcome it is already influencing.**
+
+Verified on hardware: intent 0.365 forward, obstacle at 0.22 m, `control -> safety`, then
+`clear` and `control -> behavior` once the path opened.
