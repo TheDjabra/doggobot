@@ -275,22 +275,32 @@ class BehaviorNode(Node):
                         f'"{text}" -> sequence of {len(steps)}')
                     self._start_sequence(steps)
                     return
-                # It was a chain and part of it did not parse. Refuse the whole
-                # thing rather than falling through to single-command matching,
-                # which would execute a FRAGMENT of what was asked for: saying
-                # "forward then jump then stop" and getting a car that just
-                # drives forward is worse than getting nothing.
+                # It was a chain and part of it did not parse. Do NOT fall
+                # through to single-command matching, which would execute a
+                # FRAGMENT of what was asked for: "forward then jump then stop"
+                # becoming a plain forward is worse than nothing.
+                #
+                # But this is precisely the shape the LLM tier exists for
+                # ("spin right two times then reverse"), so hand it over rather
+                # than dropping it. If nothing is listening, behaviour is
+                # unchanged from before the LLM existed.
                 missed = [p for p, st in zip(parts, steps) if not st]
-                self.get_logger().warn(
-                    f'chain refused, no primitive for {missed} in "{text}"')
+                self.get_logger().info(
+                    f'chain not in vocabulary {missed}, escalating: "{text}"')
+                self.unparsed_pub.publish(String(data=json.dumps(
+                    {'text': text, 'source': source})))
                 return
 
             # A single step may still carry a condition: "forward until green".
             for i, text in enumerate(candidates):
                 step = self._parse_step(text)
                 if step is None and self.CONDITIONAL_RE.search(text):
-                    self.get_logger().warn(
-                        f'refused, condition not understood: "{text}"')
+                    # Same reasoning: never approximate a condition, but a
+                    # condition we cannot parse is worth one look from the LLM.
+                    self.get_logger().info(
+                        f'condition not in vocabulary, escalating: "{text}"')
+                    self.unparsed_pub.publish(String(data=json.dumps(
+                        {'text': text, 'source': source})))
                     return
                 if step:
                     note = '' if i == 0 else f' (alternative {i})'

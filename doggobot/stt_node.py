@@ -83,6 +83,13 @@ class SttNode(Node):
         # spin left twice" contains "forward" and would match a plain forward
         # primitive, silently running a fragment of what was said.
         self.declare_parameter('freeform', True)
+        # The free-form pass must clear the same gate the grammar pass does. An
+        # unconstrained recogniser on an always-on microphone invents words from
+        # room noise ("surrender willing case"), and every one of those would be
+        # a needless LLM call. The wake word is what separates speech aimed at
+        # the car from speech that merely happened near it.
+        self.declare_parameter('freeform_wake', 'atlas')
+        self.declare_parameter('freeform_min_words', 3)
 
         g = self.get_parameter
         self.model_path = str(g('model_path').value)
@@ -91,6 +98,8 @@ class SttNode(Node):
         self.use_grammar = bool(g('use_grammar').value)
         self.min_words = int(g('min_words').value)
         self.freeform = bool(g('freeform').value)
+        self.freeform_wake = str(g('freeform_wake').value).lower().strip()
+        self.freeform_min_words = int(g('freeform_min_words').value)
 
         self.pub = self.create_publisher(String, 'voice_cmd', 10)
         self.heard_pub = self.create_publisher(String, 'stt_heard', 10)
@@ -152,6 +161,22 @@ class SttNode(Node):
             f'{self.rate} Hz mono in software')
         return stream
 
+    def _escalate_freeform(self, free_text):
+        """Send a free-form transcript to the LLM, if it was aimed at the car."""
+        low = free_text.lower()
+        if self.freeform_wake and self.freeform_wake not in low:
+            self.get_logger().debug(f'free-form ignored (no wake): {free_text!r}')
+            return
+        # Strip the name, then require enough left over to be a real request.
+        body = low.replace(self.freeform_wake, ' ', 1).strip()
+        if len(body.split()) < self.freeform_min_words:
+            self.get_logger().debug(f'free-form too short: {free_text!r}')
+            return
+        self.get_logger().info(f'free-form: {body!r} -> llm')
+        self.heard_pub.publish(String(data=f'(freeform) {body}'))
+        self.unparsed_pub.publish(String(data=json.dumps(
+            {'text': body, 'source': 'onboard-mic-freeform'})))
+
     def listen(self):
         import sounddevice as sd
         from vosk import KaldiRecognizer, Model, SetLogLevel
@@ -209,11 +234,8 @@ class SttNode(Node):
                 if not text or text == '[unk]':
                     # Grammar heard nothing it recognises. If the free pass heard
                     # words, hand them to the LLM rather than discarding them.
-                    if free_text and len(free_text.split()) >= 2:
-                        self.get_logger().info(f'free-form: {free_text!r} -> llm')
-                        self.heard_pub.publish(String(data=f'(freeform) {free_text}'))
-                        self.unparsed_pub.publish(String(data=json.dumps(
-                            {'text': free_text, 'source': 'onboard-mic-freeform'})))
+                    if free_text:
+                        self._escalate_freeform(free_text)
                     continue
                 # Strip the unknown-token filler the grammar emits for anything
                 # outside the vocabulary, so "uhh stop" still reads as "stop".

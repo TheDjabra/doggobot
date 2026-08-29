@@ -32,3 +32,11 @@ stt_node:
     # left twice" contains "forward" and would match a plain forward primitive,
     # silently running a fragment of what was said.
     freeform: true
+
+    # The free-form pass must clear the same gate the grammar pass does. An
+    # unconstrained recogniser on an always-on mic invents words from room noise
+    # ("surrender willing case", "i've never seen a benign"), and every one of
+    # those is a needless LLM call. Requiring the name is what separates speech
+    # aimed at the car from speech that merely happened near it.
+    freeform_wake: "atlas"
+    freeform_min_words: 3
