@@ -100,6 +100,20 @@ class PerceptionNode(Node):
         self.declare_parameter('color_hz', 5.0)
         self.declare_parameter('color_view', '')   # '', 'green', 'red', 'all'
 
+        # Lock the camera's exposure and white balance. OFF by default because
+        # auto is better for detection in changing light; ON is for colour work.
+        #
+        # Auto white balance actively changes how colour is rendered as the scene
+        # shifts, which means HSV thresholds are chasing a moving target: the same
+        # object reads as a different hue depending on what else is in frame. In a
+        # room mixing 4000 K room lighting with 5500-6500 K daylight, that is the
+        # difference between thresholds that hold and thresholds that drift.
+        # Lock them, THEN tune, and do both at the venue.
+        self.declare_parameter('lock_camera', False)
+        self.declare_parameter('exposure_us', 8000)
+        self.declare_parameter('iso', 400)
+        self.declare_parameter('white_balance_k', 5000)
+
         self.archive_path = self.get_parameter('archive_path').value
         self.confidence = float(self.get_parameter('confidence').value)
         self.nn_fps = float(self.get_parameter('nn_fps').value)
@@ -114,6 +128,10 @@ class PerceptionNode(Node):
         self.color_enabled = bool(self.get_parameter('color_enabled').value)
         self.color_hz = float(self.get_parameter('color_hz').value)
         self.color_view = str(self.get_parameter('color_view').value)
+        self.lock_camera = bool(self.get_parameter('lock_camera').value)
+        self.exposure_us = int(self.get_parameter('exposure_us').value)
+        self.iso = int(self.get_parameter('iso').value)
+        self.wb_k = int(self.get_parameter('white_balance_k').value)
         self.colors = ColorDetector(str(self.get_parameter('color_config_path').value))
         self._last_color = 0.0
         self._masks = {}
@@ -201,6 +219,12 @@ class PerceptionNode(Node):
 
     def _build(self, pipeline):
         cam = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
+        if self.lock_camera:
+            cam.initialControl.setManualExposure(self.exposure_us, self.iso)
+            cam.initialControl.setManualWhiteBalance(self.wb_k)
+            self.get_logger().info(
+                f'camera LOCKED: {self.exposure_us} us, ISO {self.iso}, '
+                f'{self.wb_k} K')
         stereo = pipeline.create(dai.node.StereoDepth).build(
             autoCreateCameras=True,
             presetMode=dai.node.StereoDepth.PresetMode.FAST_DENSITY)

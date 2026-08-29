@@ -43,3 +43,18 @@ perception_node:
     # '' none, 'green'/'red' one mask, 'all' both. Tints matching pixels on the
     # video feed so thresholds can be tuned by eye from the phone.
     color_view: ""
+
+    # Camera lock for colour work. Turn ON at the venue, then tune thresholds.
+    #
+    # Auto exposure and auto white balance continuously change how colour is
+    # rendered as the scene shifts, so HSV thresholds end up chasing a moving
+    # target: the same card reads a different hue depending on what else is in
+    # frame. Locking them is what makes a tuned threshold stay tuned.
+    #
+    # Starting points only. 5000 K sits between room lighting (~4000 K) and
+    # daylight (~5500-6500 K), which is the mix the demo room has. Raise
+    # exposure_us in dim light; raise iso only after that, since it adds noise.
+    lock_camera: false
+    exposure_us: 8000
+    iso: 400
+    white_balance_k: 5000
