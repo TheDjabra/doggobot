@@ -56,7 +56,7 @@ PHRASES = [
     'follow', 'follow me', 'come here',
     # Chain separators, so a spoken sequence survives the constrained grammar:
     # "atlas forward then circle left then stop".
-    'then', 'and',
+    'then', 'and', 'listen',
     # Conditional steps: "atlas forward until green then stop".
     'until', 'green', 'red', 'you', 'see', 'the',
 ]
@@ -89,7 +89,16 @@ class SttNode(Node):
         # a needless LLM call. The wake word is what separates speech aimed at
         # the car from speech that merely happened near it.
         self.declare_parameter('freeform_wake', 'atlas')
-        self.declare_parameter('freeform_min_words', 3)
+        self.declare_parameter('freeform_min_words', 2)
+        # Saying this instead routes the whole utterance to the LLM and stops the
+        # keyword matcher seeing it at all.
+        #
+        # This exists because the grammar cannot represent a sentence like "go
+        # right for five seconds then left for three": it hears "atlas go right",
+        # matches circle_right, and runs a SIX SECOND CIRCLE while the rest of
+        # what you said is discarded. Explicit routing means the fast path never
+        # gets to interpret a fragment of something aimed at the slow path.
+        self.declare_parameter('llm_wake', 'listen')
 
         g = self.get_parameter
         self.model_path = str(g('model_path').value)
@@ -100,6 +109,7 @@ class SttNode(Node):
         self.freeform = bool(g('freeform').value)
         self.freeform_wake = str(g('freeform_wake').value).lower().strip()
         self.freeform_min_words = int(g('freeform_min_words').value)
+        self.llm_wake = str(g('llm_wake').value).lower().strip()
 
         self.pub = self.create_publisher(String, 'voice_cmd', 10)
         self.heard_pub = self.create_publisher(String, 'stt_heard', 10)
@@ -161,18 +171,34 @@ class SttNode(Node):
             f'{self.rate} Hz mono in software')
         return stream
 
-    def _escalate_freeform(self, free_text):
+    def _wants_llm(self, *texts):
+        """Did the speaker explicitly ask for the slow path?
+
+        Checks every transcript we have, because the two decoders disagree about
+        long sentences and either one hearing "atlas listen" is good enough.
+        """
+        for t in texts:
+            low = (t or '').lower()
+            if self.freeform_wake in low and self.llm_wake in low:
+                return True
+        return False
+
+    def _escalate_freeform(self, free_text, explicit=False):
         """Send a free-form transcript to the LLM, if it was aimed at the car."""
         low = free_text.lower()
         if self.freeform_wake and self.freeform_wake not in low:
             self.get_logger().debug(f'free-form ignored (no wake): {free_text!r}')
             return
-        # Strip the name, then require enough left over to be a real request.
-        body = low.replace(self.freeform_wake, ' ', 1).strip()
+        # Strip the name and the routing word, leaving the actual request.
+        body = low.replace(self.freeform_wake, ' ', 1)
+        if self.llm_wake:
+            body = body.replace(self.llm_wake, ' ', 1)
+        body = ' '.join(body.split())
         if len(body.split()) < self.freeform_min_words:
             self.get_logger().debug(f'free-form too short: {free_text!r}')
             return
-        self.get_logger().info(f'free-form: {body!r} -> llm')
+        self.get_logger().info(
+            f'{"requested" if explicit else "fallback"} -> llm: {body!r}')
         self.heard_pub.publish(String(data=f'(freeform) {body}'))
         self.unparsed_pub.publish(String(data=json.dumps(
             {'text': body, 'source': 'onboard-mic-freeform'})))
@@ -231,6 +257,13 @@ class SttNode(Node):
                     free_text = json.loads(
                         free.Result() if free_final else free.FinalResult()
                     ).get('text', '').strip()
+                # Explicit routing wins over everything. If the speaker said
+                # "atlas listen", the keyword matcher must not see the utterance
+                # at all, or it will match a fragment and run it.
+                if self._wants_llm(text, free_text):
+                    self._escalate_freeform(free_text or text, explicit=True)
+                    continue
+
                 if not text or text == '[unk]':
                     # Grammar heard nothing it recognises. If the free pass heard
                     # words, hand them to the LLM rather than discarding them.

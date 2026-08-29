@@ -39,4 +39,17 @@ stt_node:
     # those is a needless LLM call. Requiring the name is what separates speech
     # aimed at the car from speech that merely happened near it.
     freeform_wake: "atlas"
-    freeform_min_words: 3
+    freeform_min_words: 2
+
+    # "atlas listen ..." routes the whole utterance to the LLM and stops the
+    # keyword matcher seeing it at all.
+    #
+    # Without this, a sentence the grammar cannot represent gets partially
+    # matched: "atlas go right for five seconds then left for three" was heard as
+    # "atlas go right", which ran a six second circle while the rest was thrown
+    # away. Explicit routing means the fast path never interprets a fragment of
+    # something aimed at the slow path.
+    #
+    #   "atlas stop"                     -> fast path, keyword
+    #   "atlas listen go right for 5s"   -> slow path, LLM
+    llm_wake: "listen"
