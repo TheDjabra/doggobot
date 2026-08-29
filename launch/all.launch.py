@@ -10,6 +10,8 @@ the phone bridge and is bench-only for that reason.
     follow_node         /follow_cmd
     behavior_node       /behavior_cmd  (sole owner; relays follow_cmd in follow mode)
     stt_node            on-board mic -> /voice_cmd (offline Vosk)
+    ldlidar             LD06 driver -> /scan
+    safety_node         /scan -> /safety_cmd, the 290 degrees the camera cannot see
     voice_bridge_node   phone: sticks, kill switch, (later) speech
 
 Arbiter priority means the phone always wins: e-stop beats everything, and the
@@ -56,5 +58,11 @@ def generate_launch_description():
              output='screen', emulate_tty=True),
         node('behavior_node', 'behavior.yaml'),
         node('stt_node', 'stt.yaml'),
+        node('safety_node', 'safety.yaml'),
+        # The LiDAR driver lives in the class framework's own workspace.
+        Node(package='ldlidar', executable='ldlidar', name='ldlidar',
+             parameters=[{'serial_port': '/dev/ttyUSB0', 'topic_name': 'scan',
+                          'lidar_frame': 'laser', 'range_threshold': 0.005}],
+             output='screen'),
         node('voice_bridge_node', 'bridge.yaml'),
     ])

@@ -1,0 +1,26 @@
+safety_node:
+  ros__parameters:
+    # Which way the LiDAR thinks "forward" is. Mounting rotation is a physical
+    # fact nobody writes down; find it with tools/lidar_sectors.py by putting an
+    # object directly ahead and reading off the angle. Getting this wrong makes
+    # the guard watch the wrong side of the car.
+    forward_offset_deg: 0.0
+
+    front_halfwidth_deg: 40.0
+    rear_halfwidth_deg: 40.0
+
+    # Front MUST stay inside the follow standoff (1.0 m). The person being
+    # followed is an obstacle as far as the LiDAR is concerned, so a front
+    # threshold at or above the standoff would deadlock the follow controller.
+    front_stop_m: 0.45
+    # Rear and sides can be tighter: the camera covers none of it, so this is the
+    # only thing watching, but there is also no controller to conflict with.
+    rear_stop_m: 0.35
+    side_stop_m: 0.25
+
+    # A single stray return must not stop the car. Spring-2023 Team 10
+    # documented open areas producing phantom close points on this sensor class,
+    # which made their robot freeze in place.
+    min_points: 3
+
+    publish_hz: 20.0

@@ -27,6 +27,8 @@ kill_pat 'lib/doggobot/perception_nod[e]'          'perception_node'
 kill_pat 'lib/doggobot/follow_nod[e]'              'follow_node'
 kill_pat 'lib/doggobot/behavior_nod[e]'            'behavior_node'
 kill_pat 'lib/doggobot/stt_nod[e]'                 'stt_node'
+kill_pat 'lib/doggobot/safety_nod[e]'              'safety_node'
+kill_pat 'ldlidar/ldlida[r]'                       'ldlidar'
 kill_pat 'ucsd_robocar_actuator2_pkg/vesc_twist_nod[e]' 'vesc_twist_node'
 kill_pat 'topic pu[b]'                             'stray topic pub'
 

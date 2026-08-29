@@ -33,6 +33,7 @@ setup(
             'follow_node = doggobot.follow_node:main',
             'behavior_node = doggobot.behavior_node:main',
             'stt_node = doggobot.stt_node:main',
+            'safety_node = doggobot.safety_node:main',
         ],
     },
 )
