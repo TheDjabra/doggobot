@@ -92,12 +92,22 @@ class LlmNode(Node):
         self.declare_parameter('model', 'qwen2.5:7b-instruct')
         self.declare_parameter('timeout_s', 12.0)
         self.declare_parameter('max_steps', 8)
+        # How long Ollama holds the model in VRAM after a request. Measured on
+        # an RTX 3070: 50.9 s to load 4.7 GB cold, 0.34 s warm. The model is not
+        # slow, it is unloaded, and Ollama's 5 minute default would evict it
+        # between demo commands. "-1" means never evict.
+        self.declare_parameter('keep_alive', '-1')
+        # Fire a throwaway request at startup so the first real command never
+        # pays the cold cost.
+        self.declare_parameter('warm_on_start', True)
 
         g = self.get_parameter
         self.host = str(g('host').value).rstrip('/')
         self.model = str(g('model').value)
         self.timeout = float(g('timeout_s').value)
         self.max_steps = int(g('max_steps').value)
+        self.keep_alive = str(g('keep_alive').value)
+        self.warm_on_start = bool(g('warm_on_start').value)
 
         self.pub = self.create_publisher(String, 'voice_cmd', 10)
         self.status_pub = self.create_publisher(String, 'llm_state', 10)
@@ -105,6 +115,31 @@ class LlmNode(Node):
 
         self.busy = False
         self.get_logger().info(f'llm: {self.model} at {self.host}')
+        if self.warm_on_start:
+            threading.Thread(target=self._warm, daemon=True).start()
+
+    def _warm(self):
+        """Load the model into VRAM before anyone needs it."""
+        self._status('warming')
+        t0 = time.time()
+        try:
+            body = json.dumps({
+                'model': self.model, 'stream': False,
+                'keep_alive': self.keep_alive,
+                'messages': [{'role': 'user', 'content': 'ok'}],
+            }).encode()
+            req = urllib.request.Request(
+                f'{self.host}/api/chat', data=body,
+                headers={'Content-Type': 'application/json'})
+            # Generous: a cold load of a 7B is tens of seconds.
+            urllib.request.urlopen(req, timeout=180).read()
+        except Exception as e:                               # noqa: BLE001
+            self.get_logger().warn(f'warm-up failed ({e}); the slow path will '
+                                   'still work, the first command will be slow')
+            self._status('unreachable', detail=str(e))
+            return
+        self.get_logger().info(f'model warm in {time.time() - t0:.0f}s')
+        self._status('ready')
 
     def _on_text(self, msg):
         try:
@@ -134,6 +169,7 @@ class LlmNode(Node):
                 'model': self.model,
                 'format': SCHEMA,          # constrained decoding
                 'stream': False,
+                'keep_alive': self.keep_alive,
                 'options': {'temperature': 0},
                 'messages': [
                     {'role': 'system', 'content': SYSTEM},

@@ -12,9 +12,18 @@ llm_node:
     # part, so this only has to map words onto an enum that already exists.
     model: "qwen2.5:7b-instruct"
 
-    # Generous, because this is the slow path by design. If it times out the
-    # utterance is dropped and the car behaves as it does with no LLM at all.
-    timeout_s: 12.0
+    # Warm inference measured at 0.34 s on the RTX 3070, so this is generous by a
+    # wide margin. If it times out the utterance is dropped and the car behaves
+    # as it does with no LLM at all.
+    timeout_s: 20.0
+
+    # Keep the model resident in VRAM. Measured cold load: 50.9 s for 4.7 GB;
+    # warm: 0.34 s. The model is not slow, it is unloaded, and Ollama's 5 minute
+    # default would evict it between demo commands. "-1" means never evict.
+    keep_alive: "-1"
+
+    # Load it at startup so the first real command never pays the cold cost.
+    warm_on_start: true
 
     # A parsed sequence longer than this is more likely a model that has run away
     # than something a person actually said.
