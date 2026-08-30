@@ -282,7 +282,15 @@ class PerceptionNode(Node):
         # The tracker passes its input frame through, so the video comes from the
         # same packet as the tracklets. No second camera stream, and the overlay
         # is guaranteed to match the frame it is drawn on.
-        return tracker.out.createOutputQueue(), tracker.passthroughTrackerFrame.createOutputQueue()
+        # A SECOND camera output, independent of the neural network. The tracker
+        # passthrough carries tracklets and can be annotated, but is therefore
+        # capped at the NN's rate (~12 fps measured). Manual driving asks for
+        # this one instead and gets the camera's full rate with no overlay.
+        raw = cam.requestOutput((W, H), dai.ImgFrame.Type.BGR888p,
+                                dai.ImgResizeMode.LETTERBOX, self.raw_fps)
+        return (tracker.out.createOutputQueue(),
+                tracker.passthroughTrackerFrame.createOutputQueue(),
+                raw.createOutputQueue())
 
     def _select(self, tracklets):
         """Return the tracklet we are following, acquiring a lock if asked."""
@@ -328,7 +336,10 @@ class PerceptionNode(Node):
                     return
                 self.get_logger().error(f'camera pipeline died: {e}')
                 self._publish_no_target(0.0, 'CAMERA_DOWN')
-                time.sleep(2.0)
+                # The device does not release immediately after a crash; retrying
+                # too fast just collides with the dying pipeline and reports
+                # ALREADY_IN_USE indefinitely, which hides the real error.
+                time.sleep(6.0)
 
     def _on_frame(self, qframe, qraw, tracklets):
         """One frame, two consumers: colour detection and (optionally) video.
