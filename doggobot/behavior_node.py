@@ -57,6 +57,12 @@ Primitives:
     turn_around     roughly 180 degrees, as a held circle. The mission statement
                     asks the car to "turn around" and there was no way to say it:
                     a circle is not a turn-around to anyone watching.
+    three_point     forward on full lock, reverse on opposite lock, forward. Turns
+                    the car around in FAR less space than a circle, which matters
+                    indoors where the car's Ackermann turning radius is the real
+                    constraint. Expands into a sequence, reusing the executor.
+    rev_left        reverse while steering left    ) the pieces three_point is
+    rev_right       reverse while steering right   ) built from
     figure_eight    a circle each way, expanded into a two-step sequence rather
                     than special-cased, so it reuses the executor it would
                     otherwise duplicate
@@ -91,6 +97,8 @@ from std_msgs.msg import Bool, String
 # full phrases meant a perfectly good recognition ("back") matched nothing.
 KEYWORDS = [
     ('figure_eight', ('figure eight', 'figure of eight', 'figure 8', 'do a figure eight')),
+    ('three_point',  ('three point turn', 'three point', '3 point turn',
+                      'k turn', 'point turn')),
     ('turn_around',  ('turn around', 'turn round', 'about face', 'come back',
                       'go back the other way', 'u turn', 'reverse direction')),
     ('circle_right', ('circle right', 'circle to the right', 'turn circles right')),
@@ -132,6 +140,12 @@ class BehaviorNode(Node):
         # is a measured number rather than a computed one: drive it, watch where
         # it ends up, adjust.
         self.declare_parameter('turn_around_seconds', 3.0)
+        # Per-leg time for the three-point turn. All three legs are geometry and
+        # grip dependent, so these are measured, not computed: drive it, see
+        # where the nose ends up, adjust.
+        self.declare_parameter('three_point_forward_s', 1.6)
+        self.declare_parameter('three_point_reverse_s', 1.6)
+        self.declare_parameter('three_point_settle_s', 0.8)
 
         # The on-robot microphone listens continuously and the vocabulary is made
         # of very common English words (stop, back, forward, wait, left, right).
@@ -153,6 +167,9 @@ class BehaviorNode(Node):
         self.color_react_s = float(g('color_react_seconds').value)
         self.autonomy = bool(g('autonomy_enabled').value)
         self.turn_around_s = float(g('turn_around_seconds').value)
+        self.tp_fwd_s = float(g('three_point_forward_s').value)
+        self.tp_rev_s = float(g('three_point_reverse_s').value)
+        self.tp_settle_s = float(g('three_point_settle_s').value)
         self.wake = str(g('wake_word').value).lower().strip()
         self.wake_sources = set(g('wake_word_sources').value or [])
 
@@ -485,6 +502,21 @@ class BehaviorNode(Node):
         # A figure-eight is just one circle each way. Expanding it into a
         # sequence rather than adding a bespoke primitive means it inherits the
         # executor's cancellation, timeouts and reporting for free.
+        # A three-point turn is a sequence, not a bespoke primitive, so it
+        # inherits cancellation, timeouts and progress reporting for free.
+        # Nose swings right, back up while swinging the tail the other way, then
+        # straighten out facing the way it came.
+        if action == 'three_point':
+            self.get_logger().info(
+                f'three point turn ({self.tp_fwd_s:g}/{self.tp_rev_s:g}/'
+                f'{self.tp_settle_s:g}s)')
+            self._start_sequence([
+                {'action': 'circle_right', 'seconds': self.tp_fwd_s},
+                {'action': 'rev_left', 'seconds': self.tp_rev_s},
+                {'action': 'circle_right', 'seconds': self.tp_settle_s},
+            ])
+            return
+
         if action == 'figure_eight':
             half = seconds if seconds else self.circle_s
             self.get_logger().info(f'figure eight, {half:.0f}s each way')
@@ -517,7 +549,8 @@ class BehaviorNode(Node):
         seconds = max(0.5, min(cap, seconds))
 
         if action not in ('wait', 'forward', 'reverse', 'circle_right',
-                          'circle_left', 'turn_around', 'color_react'):
+                          'circle_left', 'turn_around', 'rev_left', 'rev_right',
+                          'color_react'):
             self.get_logger().warn(f'unknown primitive: {action}')
             return
 
@@ -573,6 +606,10 @@ class BehaviorNode(Node):
             cmd.linear.x, cmd.angular.z = self.cruise, self.circle_steer
         elif self.active == 'circle_left':
             cmd.linear.x, cmd.angular.z = self.cruise, -self.circle_steer
+        elif self.active == 'rev_left':
+            cmd.linear.x, cmd.angular.z = -self.rev, -self.circle_steer
+        elif self.active == 'rev_right':
+            cmd.linear.x, cmd.angular.z = -self.rev, self.circle_steer
         elif self.active == 'turn_around':
             # Full lock one way for a measured time. Not a three-point turn: this
             # car has no reverse-steer sequencing, and a tight sustained circle

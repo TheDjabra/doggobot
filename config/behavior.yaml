@@ -41,3 +41,11 @@ behavior_node:
     # surface dependent (steering throw, wheelbase, grip), so measure it: drive
     # it, see where the nose ends up, adjust. 3 s is a starting guess.
     turn_around_seconds: 3.0
+
+    # Three-point turn legs. Turns the car around in far less space than a
+    # circle, which is what matters indoors: the car's Ackermann turning radius
+    # is a physical constraint no gain can change, but a reverse leg sidesteps it.
+    # All three are measured, not computed - drive it and adjust.
+    three_point_forward_s: 1.6
+    three_point_reverse_s: 1.6
+    three_point_settle_s: 0.8

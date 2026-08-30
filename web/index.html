@@ -278,6 +278,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
       <button class="btn prim" data-act="circle_left">Circle L</button>
       <button class="btn prim" data-act="circle_right">Circle R</button>
       <button class="btn prim" data-act="turn_around">Turn Around</button>
+      <button class="btn prim" data-act="three_point">3-Point</button>
       <button class="btn prim" data-act="figure_eight">Figure-8</button>
       <button class="btn prim" data-act="wait">Wait</button>
       <button class="btn prim" data-act="stop">Stop</button>
@@ -568,7 +569,15 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
   // state nobody remembers. Switching to DRIVE CANCELS what was running: a mode
   // that silently lets a sequence continue is worse than no mode at all.
   const TABS = ['drive', 'auto', 'voice', 'tune'];
-  const VIDEO_FPS = { drive: 20, auto: 8, voice: 8, tune: 8 };
+  // DRIVE takes frames straight from the camera (full rate, no overlay);
+  // everything else uses the tracker passthrough, which carries tracklets but is
+  // capped at the detector's ~12 fps.
+  const VIDEO_MODE = {
+    drive: { fps: 30, source: 'raw' },
+    auto:  { fps: 12, source: 'tracked' },
+    voice: { fps: 8,  source: 'tracked' },
+    tune:  { fps: 8,  source: 'tracked' },
+  };
   let autoVideo = false;
 
   function tab(which) {
@@ -580,7 +589,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     if (which !== 'drive') stopStream();
 
     send({ type: 'autonomy', enabled: which !== 'drive' });
-    send({ type: 'video', config: { fps: VIDEO_FPS[which] || 8 } });
+    send({ type: 'video', config: VIDEO_MODE[which] || VIDEO_MODE.auto });
 
     if (which !== 'auto') {
       $('autovid').src = ''; autoVideo = false;

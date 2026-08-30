@@ -33,7 +33,8 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 ACTIONS = ['forward', 'reverse', 'circle_left', 'circle_right',
-           'turn_around', 'figure_eight', 'wait', 'stop', 'follow']
+           'turn_around', 'three_point', 'figure_eight', 'wait', 'stop',
+           'follow']
 COLORS = ['green', 'red']
 
 # Constrains decoding, so the model cannot invent an action or a colour.
@@ -67,6 +68,9 @@ only way this car changes direction is by driving in a circle.
   circle_right  drive forward while turning right, continuously (an arc/circle)
   circle_left   drive forward while turning left, continuously (an arc/circle)
   turn_around   turn roughly 180 degrees and end up facing back the way it came
+  three_point   a three-point turn: same result as turn_around but in much less
+                space. Prefer it when the speaker mentions tight spaces or says
+                "three point"
   figure_eight  one circle each way
   wait          hold still
   stop          stop and cancel everything
