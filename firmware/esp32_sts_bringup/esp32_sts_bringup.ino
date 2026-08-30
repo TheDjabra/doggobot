@@ -15,9 +15,17 @@
 //   the ESP32. Only the grounds are shared between the two power domains.
 //   If `scan` finds nothing, suspect swapped TX/RX before anything else.
 //
-// WHY THESE PINS: on the classic ESP32, Serial1's default pins are wired to the
-// flash chip. Using them without remapping produces failures that look like bad
-// wiring. 16/17 are the safe conventional choice.
+// WHY NAME THE PINS: on the classic ESP32, Serial1's default pins are wired to
+// the flash chip, and using them unremapped fails in ways that look like bad
+// wiring. The S3's map differs, but naming them explicitly is correct either way.
+//
+// VERIFIED HARDWARE (2026-08-29): the board on hand is an ESP32-S3 (dual core +
+// LP, 240 MHz, 8 MB PSRAM, 16 MB flash) behind an FT232R bridge, so it appears
+// as /dev/ttyUSB* rather than ttyACM*.
+//
+// CHECK 16/17 AGAINST YOUR BOARD'S PINOUT before wiring. S3 dev boards vary, and
+// some route particular GPIOs to onboard peripherals (RGB LED, PSRAM on octal
+// parts). Any free pair works; change RX_PIN/TX_PIN to match.
 //
 // A 1000 uF capacitor across the servo power rail absorbs stall spikes; the
 // turret needed it and this will too.

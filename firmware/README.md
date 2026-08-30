@@ -30,7 +30,18 @@ ESP32; only the grounds are shared. A 1000 µF capacitor across the servo rail a
 spikes. If `scan` finds nothing, suspect swapped TX/RX first.
 
 **Pin choice matters**: on the classic ESP32, `Serial1`'s default pins are wired to the flash
-chip, and using them unremapped fails in ways that look like bad wiring. 16/17 are safe.
+chip, and using them unremapped fails in ways that look like bad wiring. Naming them explicitly is
+correct on any variant.
+
+**The board on hand (identified 2026-08-29) is an ESP32-S3**: dual core plus LP core at 240 MHz,
+8 MB PSRAM, 16 MB flash, behind an **FT232R** bridge rather than the S3's native USB, so it
+enumerates as `/dev/ttyUSB*` and not `ttyACM*`. **Check GPIO 16/17 against this board's own
+pinout before wiring** — S3 dev boards vary and some route particular GPIOs to onboard
+peripherals. Any free pair works; change `RX_PIN`/`TX_PIN` to match.
+
+It arrived flashed with a **PWM servo sweep** (printing `us 600` … `us 2400`), which drives a
+hobby servo. The STS3215 takes no PWM at all, so that firmware is for a different class of servo
+and gets replaced by the bring-up sketch.
 
 ## Things the turret already learned about these servos
 
