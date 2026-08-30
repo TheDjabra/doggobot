@@ -28,6 +28,8 @@ or given structurally, which is what the LLM tier will emit:
 
     {"action": "sequence", "steps": [
         {"action": "forward", "seconds": 2},
+        {"action": "forward", "metres": 1.5},
+        {"action": "circle_right", "degrees": 30},
         {"action": "circle_left"},
         {"action": "forward", "until": {"color": "green"}},
         {"action": "stop"}]}
@@ -147,6 +149,23 @@ class BehaviorNode(Node):
         self.declare_parameter('three_point_reverse_s', 1.6)
         self.declare_parameter('three_point_settle_s', 0.8)
 
+        # Dead reckoning. A step may ask for METRES or DEGREES instead of
+        # seconds, and these two numbers convert them.
+        #
+        # Open-loop by necessity: the VESC reports a tachometer, but the class
+        # `vesc_twist_node` holds the serial port exclusively and publishes no
+        # telemetry, so nothing can read wheel travel while the stack runs.
+        # Closing that loop means replacing the class actuator node.
+        #
+        # CALIBRATE BOTH, they are not computed:
+        #   metres: command `forward` for a known time, measure with a tape,
+        #           divide. Changes with surface, slope and pack charge.
+        #   degrees: command `turn_around`, see how far the nose actually swung,
+        #           divide by the time.
+        self.declare_parameter('metres_per_second', 0.9)
+        self.declare_parameter('degrees_per_second', 60.0)
+        self.declare_parameter('max_metres', 8.0)
+
         # The on-robot microphone listens continuously and the vocabulary is made
         # of very common English words (stop, back, forward, wait, left, right).
         # Without a gate, anyone talking near the car can drive it: observed
@@ -170,6 +189,9 @@ class BehaviorNode(Node):
         self.tp_fwd_s = float(g('three_point_forward_s').value)
         self.tp_rev_s = float(g('three_point_reverse_s').value)
         self.tp_settle_s = float(g('three_point_settle_s').value)
+        self.mps = max(0.05, float(g('metres_per_second').value))
+        self.dps = max(1.0, float(g('degrees_per_second').value))
+        self.max_m = float(g('max_metres').value)
         self.wake = str(g('wake_word').value).lower().strip()
         self.wake_sources = set(g('wake_word_sources').value or [])
 
@@ -371,7 +393,8 @@ class BehaviorNode(Node):
             return
 
         seconds = m.get('seconds')
-        self._start(action, float(seconds) if seconds else None)
+        self._start(action, float(seconds) if seconds else None,
+                    metres=m.get('metres'), degrees=m.get('degrees'))
 
     def _on_follow(self, msg):
         self.follow_cmd = msg
@@ -476,7 +499,8 @@ class BehaviorNode(Node):
             self.get_logger().warn(
                 f'step waits on {self.step_condition} but nothing publishes '
                 '/condition_state yet; the duration will time it out')
-        self._start(step.get('action'), step.get('seconds'), in_sequence=True)
+        self._start(step.get('action'), step.get('seconds'), in_sequence=True,
+                    metres=step.get('metres'), degrees=step.get('degrees'))
 
     def _cancel_sequence(self, why):
         if self.sequence or self.seq_len:
@@ -485,7 +509,26 @@ class BehaviorNode(Node):
         self.seq_len = 0
         self.step_condition = None
 
-    def _start(self, action, seconds=None, in_sequence=False):
+    def _duration_for(self, action, seconds, metres, degrees):
+        """Turn a distance or an angle into a time, using calibrated rates."""
+        if seconds is not None:
+            return float(seconds)
+        if metres is not None:
+            m = max(0.0, min(self.max_m, abs(float(metres))))
+            secs = m / self.mps
+            self.get_logger().info(
+                f'{m:g} m at {self.mps:g} m/s -> {secs:.1f}s')
+            return secs
+        if degrees is not None:
+            d = max(0.0, min(360.0, abs(float(degrees))))
+            secs = d / self.dps
+            self.get_logger().info(
+                f'{d:g} deg at {self.dps:g} deg/s -> {secs:.1f}s')
+            return secs
+        return None
+
+    def _start(self, action, seconds=None, in_sequence=False,
+               metres=None, degrees=None):
         if not in_sequence:
             # A single command mid-sequence cancels the whole thing. "Stop" must
             # stop the car, not just the current step of something continuing.
@@ -535,6 +578,8 @@ class BehaviorNode(Node):
         # is not still chasing someone while driving a canned trajectory.
         if self.active == 'follow':
             self._release_lock()
+
+        seconds = self._duration_for(action, seconds, metres, degrees)
 
         if seconds is None:
             if action == 'turn_around':

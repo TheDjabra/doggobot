@@ -49,6 +49,8 @@ SCHEMA = {
                 'properties': {
                     'action': {'type': 'string', 'enum': ACTIONS},
                     'seconds': {'type': 'number'},
+                    'metres': {'type': 'number'},
+                    'degrees': {'type': 'number'},
                     'until_color': {'type': 'string', 'enum': COLORS},
                 },
                 'required': ['action'],
@@ -85,8 +87,12 @@ DURATIONS ATTACH TO THE STEP THEY WERE SAID WITH. "go right for 5 seconds then
 left for 3 seconds" is two steps, the first with seconds=5 and the second with
 seconds=3. Do not move a duration onto a different step and do not drop one.
 
-Optional per step: `seconds` (how long) and `until_color` (drive until that
-colour is seen: green, red).
+Optional per step, at most ONE of:
+  seconds   how long, in seconds
+  metres    how far, in METRES - convert any other unit yourself:
+            1 foot = 0.30, 6 inches = 0.15, half a foot = 0.15, 1 yard = 0.91
+  degrees   how far to turn, in degrees, for circle_left / circle_right
+And optionally `until_color` (drive until that colour is seen: green, red).
 
 RULES
 - Only use the actions listed. Never invent one.
@@ -100,6 +106,17 @@ EXAMPLES
 "go right for 5 seconds then left for 3 seconds"
 -> {"understood": true, "steps": [{"action":"circle_right","seconds":5},
     {"action":"circle_left","seconds":3}]}
+
+"go forward one metre then reverse half a foot"
+-> {"understood": true, "steps": [{"action":"forward","metres":1},
+    {"action":"reverse","metres":0.15}]}
+
+"go right at a 30 degree angle"
+-> {"understood": true, "steps": [{"action":"circle_right","degrees":30}]}
+
+"drive forward two feet then turn around"
+-> {"understood": true, "steps": [{"action":"forward","metres":0.61},
+    {"action":"turn_around"}]}
 
 "spin right two times then reverse"
 -> {"understood": true, "steps": [{"action":"circle_right"},
@@ -253,8 +270,13 @@ class LlmNode(Node):
         steps = []
         for st in parsed['steps'][:self.max_steps]:
             step = {'action': st['action']}
+            # At most one of these; seconds wins if the model sends more.
             if st.get('seconds'):
                 step['seconds'] = float(st['seconds'])
+            elif st.get('metres'):
+                step['metres'] = float(st['metres'])
+            elif st.get('degrees'):
+                step['degrees'] = float(st['degrees'])
             if st.get('until_color'):
                 step['until'] = {'color': st['until_color']}
             steps.append(step)
@@ -263,6 +285,10 @@ class LlmNode(Node):
             bits = st['action']
             if st.get('seconds'):
                 bits += f"({st['seconds']:g}s)"
+            if st.get('metres'):
+                bits += f"({st['metres']:g}m)"
+            if st.get('degrees'):
+                bits += f"({st['degrees']:g}deg)"
             if st.get('until'):
                 bits += f"(until {st['until']['color']})"
             return bits

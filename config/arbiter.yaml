@@ -36,3 +36,12 @@ arbiter_node:
     # 1676 ERPM range while drawing 14.6 A, against 3.0 A at cruise. Jumpy motion
     # and five times the current, for no useful speed.
     throttle_floor: 0.365
+
+    # Manual teleop outranks the LiDAR guard. The guard exists to catch what the
+    # autonomy cannot see; a person with eyes on the car and a kill switch has
+    # context no proximity sensor has. Observed 2026-08-29: with an obstacle
+    # 0.2 m off one flank the guard vetoed every direction, including the reverse
+    # that would have freed the car. A guard that blocks escape protects nothing.
+    #
+    # The e-stop still outranks both, so this is not the last line of defence.
+    safety_outranks_teleop: false

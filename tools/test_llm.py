@@ -22,6 +22,9 @@ CASES = [
      'forward(5) -> circle_left -> circle_left'),
     ('go until you see the green thing and then stop',
      'forward(until green) -> stop'),
+    ('go forward one metre then reverse half a foot',
+     'forward(1m) -> reverse(0.15m)'),
+    ('go right at a 30 degree angle', 'circle_right(30deg)'),
     ('make me a sandwich', 'not understood'),
 ]
 

@@ -17,9 +17,18 @@ Priority, highest first:
 
     0. /arm          (std_msgs/Bool)   master enable, OFF at power-on
     1. /estop        (std_msgs/Bool)   latched kill switch
-    2. /safety_cmd   (Twist)           watchdogs, e.g. LiDAR proximity
-    3. /teleop_cmd   (Twist)           manual joystick stream
+    2. /teleop_cmd   (Twist)           manual joystick stream
+    3. /safety_cmd   (Twist)           watchdogs, e.g. LiDAR proximity
     4. /behavior_cmd (Twist)           autonomous primitives
+
+**Manual outranks the safety guard, deliberately.** The guard exists to catch
+what the autonomy cannot see. A person with eyes on the car and a kill switch has
+context no proximity sensor has, and a guard that blocks the reverse which would
+free a wedged car is not protecting anything. Observed: with an obstacle 0.2 m off
+one flank, the guard vetoed every direction including escape.
+
+Set `safety_outranks_teleop` if you want the older ordering; the e-stop is above
+both either way, so this is not the last line of defence.
 
 Two safety properties are built in rather than bolted on:
 
@@ -74,6 +83,9 @@ class ArbiterNode(Node):
         # acts: a page can open by accident, be restored by the browser, or sit
         # in a background tab, and none of those should be able to move a car.
         self.declare_parameter('arm_on_start', False)
+        # See the priority note above: manual input is an override, not another
+        # peer for the guard to arbitrate against.
+        self.declare_parameter('safety_outranks_teleop', False)
 
         self.declare_parameter('publish_hz', 20.0)
         self.declare_parameter('safety_timeout_s', 0.5)
@@ -107,11 +119,14 @@ class ArbiterNode(Node):
         self.throttle_floor = self.get_parameter('throttle_floor').value
 
         # Highest priority first. Order in this list IS the priority order.
-        self.sources = [
-            Source('safety', self.get_parameter('safety_timeout_s').value),
-            Source('teleop', self.get_parameter('teleop_timeout_s').value),
-            Source('behavior', self.get_parameter('behavior_timeout_s').value),
-        ]
+        safety = Source('safety', self.get_parameter('safety_timeout_s').value)
+        teleop = Source('teleop', self.get_parameter('teleop_timeout_s').value)
+        behavior = Source('behavior',
+                          self.get_parameter('behavior_timeout_s').value)
+        if bool(self.get_parameter('safety_outranks_teleop').value):
+            self.sources = [safety, teleop, behavior]
+        else:
+            self.sources = [teleop, safety, behavior]
         self.by_name = {s.name: s for s in self.sources}
 
         self.estop = False
