@@ -870,3 +870,69 @@ YAML.
 **Result worth stating plainly**: sub-second parsing on our own hardware. The whole voice stack
 now runs on machines we own — speech offline on the Pi or in the phone's browser, detection on the
 camera's VPU, language parsing on the desktop. Nothing about a spoken command leaves the network.
+
+### Explicit LLM routing, and a prompt that describes mechanism (2026-08-29)
+
+**"atlas listen ..." routes to the LLM and locks the keyword matcher out.** Magnus's idea, and it
+fixed a live bug rather than just adding convenience. Previously, saying a long sentence to the
+mic let the grammar pass hear "atlas go right" inside it, match `circle_right`, and drive a six
+second circle while discarding the rest. The grammar cannot represent a sentence it has no words
+for, so it grabs the fragment it can. Explicit routing means the fast path never gets to interpret
+part of something aimed at the slow path.
+
+The implicit fallback remains: grammar hears nothing, free-form heard words with the wake word in
+them, escalate. Forgetting "listen" degrades rather than fails.
+
+**The free-form pass needed the same gate the grammar has.** Unconstrained recognition on an
+always-on mic invents words from room noise ("surrender willing case", "i've never seen a
+benign"), and each one was a needless LLM call. It now requires the wake word too. The grammar
+never had this problem precisely because it cannot produce out-of-vocabulary words.
+
+**A refused chain now escalates instead of being dropped.** Refusing a partially-parsed chain was
+right when there was no slow path; with one, it was throwing away exactly the utterances the LLM
+exists for. "spin right two times then reverse" was heard perfectly by the phone and binned.
+
+#### The prompt bug: naming without describing
+
+"go right for 5 seconds then left for 3 seconds" parsed to `forward -> circle_right`. Two errors:
+direction words became `forward`, and the second duration was attached to the wrong step.
+
+Cause: the system prompt listed the primitive *names* but never said what they physically do, and
+this car has **no "turn right" primitive** — turning is only expressible as driving in a circle.
+Asked to map "go right", the model guessed. Rewritten to describe the mechanism ("there is no turn
+and keep going straight: the only way this car changes direction is by driving in a circle"),
+state that direction words mean circles, and that a duration belongs to the step it was spoken
+with. All five test cases correct afterwards, sub-second.
+
+**A test that cannot observe the thing that broke is not evidence.** The first run after the fix
+showed all five action sequences correct and I nearly stopped there — but the summary printed only
+action names, so it was blind to durations, which were half the bug. Now prints arguments.
+
+### Battery, and a profile that was wrong for weeks
+
+A pack ran flat enough to kill the car, and the charger then refused it. Root cause: the VESC had
+a **3S** profile on a **4S** pack, putting the low-voltage cutoff near 9 V = **2.25 V per cell**,
+so the protection that should have stopped the car near 12 V never fired. Flagged as a risk on
+2026-08-26 and it materialised three days later.
+
+Recovered with a stepped kick-start (2S briefly, 3S, then 4S). That is the standard technique and
+it does bypass a protection that exists because charging a deeply discharged Li-ion can plate
+copper internally. A considered decision, not a habit. **VESC corrected to 4S the same day.**
+
+`tools/battery_check.py` now runs as a systemd `ExecStartPre`, so every boot logs pack voltage and
+per-cell average. It runs in the only window where it can: `vesc_twist_node` holds `/dev/ttyACM0`
+exclusively and publishes no telemetry, so once the stack is up the battery is unreadable.
+Continuous monitoring needs our own actuator node, which is the same work that would unlock
+duty-cycle mode for smooth slow driving.
+
+**Lesson: a mis-set battery profile does not announce itself.** Everything worked normally for
+weeks, and the failure landed on the one component with no way to complain.
+
+### Container DNS: a stale file outliving the thing that made it wrong
+
+`llm_node` failed with `Name or service not known` for `rasputin` while the host resolved it fine.
+Docker captured `/etc/resolv.conf` when the container was **created**, before Tailscale owned DNS
+on the Pi, so it listed only the ISP's resolvers and knew nothing about MagicDNS. Fixed by
+pointing it at `100.100.100.100` with the tailnet search domain; Docker does not regenerate the
+file once edited, so it persists across restarts but **is lost if the container is recreated**.
+Documented in `docs/runbook.md` and the backup restore procedure.
