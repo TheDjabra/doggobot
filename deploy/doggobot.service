@@ -19,6 +19,12 @@ ExecStartPre=/bin/sleep 3
 # software one, so it is worth spending a second to make impossible.
 ExecStartPre=-/usr/bin/docker exec Doggobot bash /home/projects/ros2_ws/src/doggobot/tools/stop_stack.sh
 
+# Read the pack before anything claims the VESC. This is the only window in
+# which it is possible: vesc_twist_node holds /dev/ttyACM0 exclusively and
+# publishes no telemetry, so once the stack is up the battery is unreadable.
+# Never fatal - a low battery must not stop the car from booting.
+ExecStartPre=-/usr/bin/docker exec Doggobot python3 /home/projects/ros2_ws/src/doggobot/tools/battery_check.py
+
 ExecStart=/usr/bin/docker exec Doggobot bash -lc \
   'source /home/projects/ros2_ws/src/doggobot/tools/env.sh && \
    exec ros2 launch doggobot all.launch.py'
