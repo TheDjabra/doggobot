@@ -79,6 +79,8 @@ class BridgeNode(Node):
         self.lock_pub = self.create_publisher(String, 'target_lock', 10)
         self.arm_pub = self.create_publisher(Bool, 'arm', 10)
         self.color_pub = self.create_publisher(String, 'color_config', 10)
+        self.video_pub = self.create_publisher(String, 'video_config', 10)
+        self.autonomy_pub = self.create_publisher(Bool, 'autonomy_enabled', 10)
 
         # Latest perception state, pushed to the phone so the operator can see
         # WHAT the car is following rather than inferring it from behaviour.
@@ -150,6 +152,14 @@ class BridgeNode(Node):
             self.condition = json.loads(msg.data)
         except Exception:                                    # noqa: BLE001
             pass
+
+    def publish_video_config(self, cfg):
+        self.video_pub.publish(String(data=json.dumps(cfg)))
+
+    def publish_autonomy(self, enabled):
+        self.autonomy_pub.publish(Bool(data=bool(enabled)))
+        self.get_logger().info(
+            f'autonomy {"enabled" if enabled else "suppressed"} from phone')
 
     def publish_color_config(self, cfg):
         self.color_pub.publish(String(data=json.dumps(cfg)))
@@ -303,6 +313,10 @@ def build_app(node: BridgeNode) -> FastAPI:
                 if kind == 'teleop':
                     node.publish_teleop(msg.get('throttle', 0.0),
                                         msg.get('steering', 0.0))
+                elif kind == 'video':
+                    node.publish_video_config(msg.get('config', {}))
+                elif kind == 'autonomy':
+                    node.publish_autonomy(bool(msg.get('enabled', True)))
                 elif kind == 'color':
                     node.publish_color_config(msg.get('config', {}))
                 elif kind == 'arm':

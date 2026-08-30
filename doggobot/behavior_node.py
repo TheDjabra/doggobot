@@ -54,6 +54,9 @@ Primitives:
     reverse         straight back
     circle_right    forward with steering held right
     circle_left     forward with steering held left
+    turn_around     roughly 180 degrees, as a held circle. The mission statement
+                    asks the car to "turn around" and there was no way to say it:
+                    a circle is not a turn-around to anyone watching.
     figure_eight    a circle each way, expanded into a two-step sequence rather
                     than special-cased, so it reuses the executor it would
                     otherwise duplicate
@@ -78,7 +81,7 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 # Longest match first, so "circle left" cannot be swallowed by "left".
 #
@@ -88,6 +91,8 @@ from std_msgs.msg import String
 # full phrases meant a perfectly good recognition ("back") matched nothing.
 KEYWORDS = [
     ('figure_eight', ('figure eight', 'figure of eight', 'figure 8', 'do a figure eight')),
+    ('turn_around',  ('turn around', 'turn round', 'about face', 'come back',
+                      'go back the other way', 'u turn', 'reverse direction')),
     ('circle_right', ('circle right', 'circle to the right', 'turn circles right')),
     ('circle_left',  ('circle left', 'circle to the left', 'turn circles left')),
     ('reverse',      ('reverse', 'back up', 'go back', 'backward', 'backwards',
@@ -116,6 +121,17 @@ class BehaviorNode(Node):
         # meant to be watched while tuning, but it is still bounded: an
         # open-ended reactive mode is exactly the thing that drives off a bench.
         self.declare_parameter('color_react_seconds', 300.0)
+        # Autonomy suppression. When the operator is on the manual DRIVE tab,
+        # nothing autonomous may move the car: no primitive, no sequence, no
+        # follow. This is a mode guarantee, not a preference, and it is the same
+        # shape as the arm gate: separate what the car CAN do from what someone
+        # currently intends.
+        self.declare_parameter('autonomy_enabled', True)
+        # How long a held full-lock circle takes to come back around. This is
+        # geometry and surface dependent (steering throw, wheelbase, grip), so it
+        # is a measured number rather than a computed one: drive it, watch where
+        # it ends up, adjust.
+        self.declare_parameter('turn_around_seconds', 3.0)
 
         # The on-robot microphone listens continuously and the vocabulary is made
         # of very common English words (stop, back, forward, wait, left, right).
@@ -135,6 +151,8 @@ class BehaviorNode(Node):
         self.circle_s = float(g('circle_seconds').value)
         self.max_s = float(g('max_seconds').value)
         self.color_react_s = float(g('color_react_seconds').value)
+        self.autonomy = bool(g('autonomy_enabled').value)
+        self.turn_around_s = float(g('turn_around_seconds').value)
         self.wake = str(g('wake_word').value).lower().strip()
         self.wake_sources = set(g('wake_word_sources').value or [])
 
@@ -160,6 +178,7 @@ class BehaviorNode(Node):
         self.create_subscription(Twist, 'follow_cmd', self._on_follow, 10)
         self.create_subscription(String, 'target_state', self._on_target, 10)
         self.create_subscription(String, 'condition_state', self._on_condition, 10)
+        self.create_subscription(Bool, 'autonomy_enabled', self._on_autonomy, 10)
 
         self.create_timer(1.0 / self.hz, self._tick)
         self.get_logger().info(
@@ -324,6 +343,12 @@ class BehaviorNode(Node):
                     {'text': candidates[0], 'source': source})))
                 return
 
+        if not self.autonomy and action not in ('stop', 'release'):
+            # Stop always works, whatever the mode. Refusing to stop would be an
+            # absurd way to enforce a safety mode.
+            self.get_logger().info(f'ignored ({action}): autonomy suppressed')
+            return
+
         if action == 'sequence':
             self._start_sequence(m.get('steps'))
             return
@@ -346,12 +371,38 @@ class BehaviorNode(Node):
             locked = bool(json.loads(msg.data).get('locked'))
         except Exception:                                    # noqa: BLE001
             return
+        if locked and not self.autonomy:
+            # A lock acquired while suppressed must not start driving.
+            self._release_lock()
+            return
         if locked and self.active != 'follow':
             self._cancel_sequence('follow lock acquired')
             self._enter('follow', 0.0)
         elif not locked and self.active == 'follow':
             self.get_logger().info('follow ended: lock lost')
             self._enter(None, 0.0)
+
+    def _on_autonomy(self, msg):
+        """Enable or suppress everything autonomous.
+
+        Suppression CANCELS rather than warns. A mode that silently lets a
+        sequence keep running is worse than no mode: the whole point is being
+        able to look at the screen and know the car will not move on its own.
+        """
+        want = bool(msg.data)
+        if want == self.autonomy:
+            return
+        self.autonomy = want
+        if want:
+            self.get_logger().info('autonomy enabled')
+            return
+        self.get_logger().warn('autonomy suppressed (manual drive)')
+        self._cancel_sequence('autonomy suppressed')
+        if self.active == 'follow':
+            self._release_lock()
+        if self.active is not None:
+            self._enter(None, 0.0)
+            self.cmd_pub.publish(Twist())
 
     def _on_condition(self, msg):
         """Latest observed world state, e.g. {"color": "green", "distance": 900}."""
@@ -374,6 +425,7 @@ class BehaviorNode(Node):
         self.active, self.until = name, until
         self.state_pub.publish(String(data=json.dumps({
             'active': name, 'until': until,
+            'autonomy': self.autonomy,
             'step': (self.seq_len - len(self.sequence)) if self.seq_len else 0,
             'steps': self.seq_len,
             'waiting_for': self.step_condition,
@@ -453,7 +505,9 @@ class BehaviorNode(Node):
             self._release_lock()
 
         if seconds is None:
-            if action == 'color_react':
+            if action == 'turn_around':
+                seconds = self.turn_around_s
+            elif action == 'color_react':
                 seconds = self.color_react_s
             elif action.startswith('circle'):
                 seconds = self.circle_s
@@ -463,7 +517,7 @@ class BehaviorNode(Node):
         seconds = max(0.5, min(cap, seconds))
 
         if action not in ('wait', 'forward', 'reverse', 'circle_right',
-                          'circle_left', 'color_react'):
+                          'circle_left', 'turn_around', 'color_react'):
             self.get_logger().warn(f'unknown primitive: {action}')
             return
 
@@ -519,6 +573,12 @@ class BehaviorNode(Node):
             cmd.linear.x, cmd.angular.z = self.cruise, self.circle_steer
         elif self.active == 'circle_left':
             cmd.linear.x, cmd.angular.z = self.cruise, -self.circle_steer
+        elif self.active == 'turn_around':
+            # Full lock one way for a measured time. Not a three-point turn: this
+            # car has no reverse-steer sequencing, and a tight sustained circle
+            # gets the nose pointing back the way it came, which is what the
+            # mission statement needs.
+            cmd.linear.x, cmd.angular.z = self.cruise, self.circle_steer
         # 'wait' falls through as a zero Twist: stopped, but still the active
         # primitive, so it is a held state rather than an absence of one.
         self.cmd_pub.publish(cmd)

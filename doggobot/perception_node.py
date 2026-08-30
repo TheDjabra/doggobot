@@ -145,9 +145,11 @@ class PerceptionNode(Node):
         self.image_pub = self.create_publisher(CompressedImage, 'camera/compressed', 2)
         self.condition_pub = self.create_publisher(String, 'condition_state', 10)
         self.create_subscription(String, 'color_config', self._on_color_config, 10)
+        self.create_subscription(String, 'video_config', self._on_video_config, 10)
         self.image_pub = self.create_publisher(CompressedImage, 'camera/compressed', 2)
         self.condition_pub = self.create_publisher(String, 'condition_state', 10)
         self.create_subscription(String, 'color_config', self._on_color_config, 10)
+        self.create_subscription(String, 'video_config', self._on_video_config, 10)
         self.create_subscription(String, 'target_lock', self._on_lock, 10)
 
         self.running = True
@@ -155,6 +157,24 @@ class PerceptionNode(Node):
                                f'conf {self.confidence} @ {self.nn_fps:.0f} fps req')
 
     # -- colour ---------------------------------------------------------------
+
+    def _on_video_config(self, msg):
+        """Runtime video rate, so the manual tab can ask for more frames.
+
+        Measured: 8 fps of JPEG costs about 4.6% of the container. Raising it is
+        affordable, and being able to drop it without a redeploy matters if the
+        link is poor at the venue.
+        """
+        try:
+            m = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            return
+        if 'fps' in m:
+            self.video_fps = max(0.0, min(30.0, float(m['fps'])))
+        if 'quality' in m:
+            self.video_quality = max(20, min(90, int(m['quality'])))
+        self.get_logger().info(
+            f'video {self.video_fps:.0f} fps q{self.video_quality}')
 
     def _on_color_config(self, msg):
         """Live threshold updates from the tuning page.

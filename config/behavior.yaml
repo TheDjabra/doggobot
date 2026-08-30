@@ -36,3 +36,8 @@ behavior_node:
     # thresholds. Still bounded: an open-ended reactive mode is exactly what
     # drives off a bench when you look away.
     color_react_seconds: 300.0
+
+    # A held full-lock circle long enough to come back around. Geometry and
+    # surface dependent (steering throw, wheelbase, grip), so measure it: drive
+    # it, see where the nose ends up, adjust. 3 s is a starting guess.
+    turn_around_seconds: 3.0

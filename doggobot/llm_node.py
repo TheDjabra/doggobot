@@ -33,7 +33,7 @@ from rclpy.node import Node
 from std_msgs.msg import String
 
 ACTIONS = ['forward', 'reverse', 'circle_left', 'circle_right',
-           'figure_eight', 'wait', 'stop', 'follow']
+           'turn_around', 'figure_eight', 'wait', 'stop', 'follow']
 COLORS = ['green', 'red']
 
 # Constrains decoding, so the model cannot invent an action or a colour.
@@ -66,6 +66,7 @@ only way this car changes direction is by driving in a circle.
   reverse       drive straight backwards
   circle_right  drive forward while turning right, continuously (an arc/circle)
   circle_left   drive forward while turning left, continuously (an arc/circle)
+  turn_around   turn roughly 180 degrees and end up facing back the way it came
   figure_eight  one circle each way
   wait          hold still
   stop          stop and cancel everything
@@ -107,6 +108,10 @@ EXAMPLES
 "go until you see the green thing then stop"
 -> {"understood": true, "steps": [{"action":"forward","until_color":"green"},
     {"action":"stop"}]}
+
+"go forward then turn around and come back"
+-> {"understood": true, "steps": [{"action":"forward"},
+    {"action":"turn_around"}, {"action":"forward"}]}
 
 "back up for two seconds then do a figure eight"
 -> {"understood": true, "steps": [{"action":"reverse","seconds":2},
