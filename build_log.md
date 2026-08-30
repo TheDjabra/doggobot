@@ -936,3 +936,73 @@ on the Pi, so it listed only the ISP's resolvers and knew nothing about MagicDNS
 pointing it at `100.100.100.100` with the tailnet search domain; Docker does not regenerate the
 file once edited, so it persists across restarts but **is lost if the container is recreated**.
 Documented in `docs/runbook.md` and the backup restore procedure.
+
+### Tab-as-mode, turn-around, three-point turn (2026-08-29)
+
+**Four tabs, and the tab IS the mode.** DRIVE is manual only: while it is open nothing autonomous
+can move the car, and arriving there **cancels** whatever was running. AUTO carries follow, the
+target panel and the primitives. VOICE and TUNE unchanged.
+
+Cancel rather than warn, deliberately: a mode that silently lets a sequence continue is worse than
+no mode, because the whole value is being able to glance at the screen and know the car will not
+move on its own. `stop` and `release` are exempt from suppression, since refusing to stop in order
+to enforce a safety mode would be absurd. A lock acquired while suppressed is released rather than
+obeyed.
+
+**`turn_around`**, which was a real gap: the proposal's mission statement says "turn around" and
+there was no way to express it. A held full-lock circle for a measured time.
+
+**`three_point`**, and I was wrong to say it was impossible. I claimed the car "has no
+reverse-steer sequencing", but `reverse` sets steering to zero **because I wrote it that way**,
+not because of any constraint. Added `rev_left`/`rev_right`, and a three-point turn is
+`circle_right -> rev_left -> circle_right`, expanded into a sequence so it inherits cancellation
+and timeouts. It also answers the turning-radius complaint from the ground test: **a reverse leg
+sidesteps the Ackermann limit that no steering gain can change**, which matters indoors.
+
+### Video is capped by the detector, and trying to fix it broke everything
+
+Asked for 30 fps, measured **12.4** — identical to `/target_state`, because video comes from the
+tracker's passthrough, so every video frame is a detector frame. The 20 fps cap I had written was
+meaningless.
+
+Tried adding a second `cam.requestOutput()` to bypass the NN. **It silently broke the entire
+perception pipeline**: it constructed, logged `camera pipeline started`, and produced no tracker
+output at all, taking following and colour detection down with it. The failure then hid behind
+`X_LINK_DEVICE_ALREADY_IN_USE` from the retry loop colliding with the dying pipeline. Reverted.
+
+**`camera pipeline started` means constructed, not producing.** I trusted a log line that only
+proved the easy half. Full-rate video needs a different approach than a second output on this
+camera and is not worth risking a working perception path over.
+
+### Manual now outranks the LiDAR guard
+
+Magnus found the car could not be driven out of a tight spot: with an obstacle 0.2 m off one
+flank, `_hazard()` vetoed **every** direction including the reverse that would free it, because
+the flank sectors apply to any motion.
+
+The fix is authority, not geometry. Arbiter priority is now
+`arm -> e-stop -> teleop -> safety -> behaviour`. **The guard exists to catch what the autonomy
+cannot see; a person with eyes on the car and a kill switch has context no proximity sensor has,
+and a guard that blocks escape protects nothing.** The e-stop still sits above both.
+`safety_outranks_teleop: true` restores the old ordering.
+
+### Distance and angle commands
+
+"go forward one metre then reverse half a foot" and "go right at a 30 degree angle" now parse,
+with unit conversion handled in the prompt (half a foot -> 0.15 m).
+
+**Dead reckoning, open-loop by necessity.** The VESC reports a tachometer, but the class
+`vesc_twist_node` holds the serial port exclusively and publishes no telemetry, so wheel travel is
+unreadable while the stack runs. Closing that loop means replacing the class actuator node, which
+is the same work that would give continuous battery voltage and duty-cycle slow driving. Not
+before the demo.
+
+So distance is time multiplied by a rate, and **both rates are guesses until measured**:
+
+| Parameter | Now | How to measure |
+|---|---|---|
+| `metres_per_second` | 0.9 | run `forward` for a known time, tape-measure it, divide |
+| `degrees_per_second` | 60 | run `turn_around`, see how far the nose swung, divide by time |
+
+Until then "forward one metre" is confidently wrong. Both change with surface, slope and pack
+charge. The same session settles `turn_around_seconds` and the three three-point legs.
