@@ -569,14 +569,11 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
   // state nobody remembers. Switching to DRIVE CANCELS what was running: a mode
   // that silently lets a sequence continue is worse than no mode at all.
   const TABS = ['drive', 'auto', 'voice', 'tune'];
-  // DRIVE takes frames straight from the camera (full rate, no overlay);
-  // everything else uses the tracker passthrough, which carries tracklets but is
-  // capped at the detector's ~12 fps.
+  // Video is capped at the detector's ~12 fps because frames come from the
+  // tracker's passthrough. DRIVE asks for all of them; the other tabs take less,
+  // since nobody is steering by them.
   const VIDEO_MODE = {
-    drive: { fps: 30, source: 'raw' },
-    auto:  { fps: 12, source: 'tracked' },
-    voice: { fps: 8,  source: 'tracked' },
-    tune:  { fps: 8,  source: 'tracked' },
+    drive: { fps: 12 }, auto: { fps: 10 }, voice: { fps: 6 }, tune: { fps: 8 },
   };
   let autoVideo = false;
 

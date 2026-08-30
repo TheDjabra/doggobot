@@ -91,13 +91,13 @@ class PerceptionNode(Node):
         self.declare_parameter('video_fps', 8.0)
         self.declare_parameter('video_quality', 55)
         self.declare_parameter('video_annotate', True)
-        # 'tracked' takes frames from the tracker's passthrough, so every frame
-        # carries tracklets and can be annotated - but it is therefore capped at
-        # the NN's rate (~12 fps measured). 'raw' takes a second output straight
-        # from the camera at full rate with no overlay, which is what manual
-        # driving wants: more frames, no boxes.
-        self.declare_parameter('video_source', 'tracked')
-        self.declare_parameter('raw_fps', 30.0)
+        # NOTE (2026-08-29): video is capped at the DETECTOR's rate, ~12 fps,
+        # because frames come from the tracker's passthrough. Asking for 30 gives
+        # 12.4. Adding a second `cam.requestOutput()` to bypass the NN was tried
+        # and BROKE THE PIPELINE ENTIRELY: it constructed and reported "started"
+        # while producing no tracker output at all. Reverted. Getting full-rate
+        # video needs a different approach than a second output on this camera,
+        # and is not worth risking a working perception path over.
 
         # Colour cues for the mission statement. Runs on the same frames the
         # video already uses, because only one process can own the camera.
@@ -130,8 +130,7 @@ class PerceptionNode(Node):
         self.video_fps = float(self.get_parameter('video_fps').value)
         self.video_quality = int(self.get_parameter('video_quality').value)
         self.video_annotate = bool(self.get_parameter('video_annotate').value)
-        self.video_source = str(self.get_parameter('video_source').value)
-        self.raw_fps = float(self.get_parameter('raw_fps').value)
+
         self._last_frame = 0.0
 
         self.color_enabled = bool(self.get_parameter('color_enabled').value)
@@ -182,8 +181,7 @@ class PerceptionNode(Node):
             self.video_fps = max(0.0, min(30.0, float(m['fps'])))
         if 'quality' in m:
             self.video_quality = max(20, min(90, int(m['quality'])))
-        if m.get('source') in ('tracked', 'raw'):
-            self.video_source = m['source']
+
         self.get_logger().info(
             f'video {self.video_fps:.0f} fps q{self.video_quality}')
 
@@ -249,7 +247,6 @@ class PerceptionNode(Node):
     # -- the pipeline ---------------------------------------------------------
 
     def _build(self, pipeline):
-        W = H = 416
         cam = pipeline.create(dai.node.Camera).build(dai.CameraBoardSocket.CAM_A)
         if self.lock_camera:
             cam.initialControl.setManualExposure(self.exposure_us, self.iso)
@@ -282,15 +279,8 @@ class PerceptionNode(Node):
         # The tracker passes its input frame through, so the video comes from the
         # same packet as the tracklets. No second camera stream, and the overlay
         # is guaranteed to match the frame it is drawn on.
-        # A SECOND camera output, independent of the neural network. The tracker
-        # passthrough carries tracklets and can be annotated, but is therefore
-        # capped at the NN's rate (~12 fps measured). Manual driving asks for
-        # this one instead and gets the camera's full rate with no overlay.
-        raw = cam.requestOutput((W, H), dai.ImgFrame.Type.BGR888p,
-                                dai.ImgResizeMode.LETTERBOX, self.raw_fps)
         return (tracker.out.createOutputQueue(),
-                tracker.passthroughTrackerFrame.createOutputQueue(),
-                raw.createOutputQueue())
+                tracker.passthroughTrackerFrame.createOutputQueue())
 
     def _select(self, tracklets):
         """Return the tracklet we are following, acquiring a lock if asked."""
@@ -327,10 +317,10 @@ class PerceptionNode(Node):
         while self.running and rclpy.ok():
             try:
                 with dai.Pipeline() as pipeline:
-                    q, qframe, qraw = self._build(pipeline)
+                    q, qframe = self._build(pipeline)
                     pipeline.start()
                     self.get_logger().info('camera pipeline started')
-                    self._loop(q, qframe, qraw)
+                    self._loop(q, qframe)
             except Exception as e:                            # noqa: BLE001
                 if not self.running:
                     return
@@ -341,7 +331,7 @@ class PerceptionNode(Node):
                 # ALREADY_IN_USE indefinitely, which hides the real error.
                 time.sleep(6.0)
 
-    def _on_frame(self, qframe, qraw, tracklets):
+    def _on_frame(self, qframe, tracklets):
         """One frame, two consumers: colour detection and (optionally) video.
 
         Both want the same picture, and colour must see the RAW frame rather than
@@ -359,31 +349,20 @@ class PerceptionNode(Node):
             qframe.tryGet()          # drain, or the queue backs up
             return
 
-        # Colour always uses the tracked frame, so its timing matches the
-        # detections; video may come from either source.
         pkt = qframe.tryGet()
-        raw_pkt = qraw.tryGet() if self.video_source == 'raw' else None
-        if pkt is None and raw_pkt is None:
+        if pkt is None:
             return
-        frame = pkt.getCvFrame() if pkt is not None else None
+        frame = pkt.getCvFrame()
 
-        if color_due and frame is not None:
+        if color_due:
             self._run_color(frame)
 
         if not video_due:
             return
         self._last_frame = now
 
-        if self.video_source == 'raw':
-            if raw_pkt is None:
-                return
-            frame = raw_pkt.getCvFrame()
-        elif frame is None:
-            return
-
-        # No tracklets belong to a raw frame, so no overlay on it.
-        annotate = self.video_annotate and self.video_source == 'tracked'
-        if self.color_view and self._masks and self.video_source == 'tracked':
+        annotate = self.video_annotate
+        if self.color_view and self._masks:
             show = None if self.color_view == 'all' else self.color_view
             frame = self.colors.overlay(frame, self._masks, show)
 
@@ -412,7 +391,7 @@ class PerceptionNode(Node):
             msg.data = jpg.tobytes()
             self.image_pub.publish(msg)
 
-    def _loop(self, q, qframe, qraw):
+    def _loop(self, q, qframe):
         frames, t0, fps = 0, time.time(), 0.0
         while self.running and rclpy.ok():
             pkt = q.tryGet()
@@ -426,7 +405,7 @@ class PerceptionNode(Node):
                 fps = 20.0 / (now - t0)
                 t0 = now
 
-            self._on_frame(qframe, qraw, pkt.tracklets)
+            self._on_frame(qframe, pkt.tracklets)
 
             t = self._select(pkt.tracklets)
             if t is None:
