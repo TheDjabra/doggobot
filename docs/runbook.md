@@ -96,3 +96,27 @@ stays lit; that is the Pi 5's standby state, not a running system.
 | Page will not load | `tailscale serve status`, then `curl localhost:8080/healthz` on the Pi |
 | Page loads, no microphone | Not served over HTTPS, or the tab is not push-to-talk |
 | Device missing inside container | `docker restart Doggobot`, then re-copy the X11 cookie |
+| `Name or service not known` for a tailnet name | the container's `/etc/resolv.conf` predates Tailscale owning DNS on the host. See below |
+
+## Container DNS, if tailnet names fail inside it
+
+Symptom: `rasputin` resolves on the Pi but not inside the container, so `llm_node` reports
+`Name or service not known` while `curl` from the host works.
+
+Cause: Docker captured `/etc/resolv.conf` when the container was **created**, which was before
+Tailscale took over DNS on the Pi. The container therefore lists the ISP's resolvers and knows
+nothing about MagicDNS.
+
+Docker does not regenerate that file once it has been edited, so the fix persists across
+restarts, but **it is lost if the container is recreated**:
+
+```bash
+docker exec Doggobot bash -c 'cat > /etc/resolv.conf <<EOF
+nameserver 100.100.100.100
+search tail502ca5.ts.net
+nameserver 68.105.28.11
+nameserver 68.105.29.11
+EOF'
+```
+
+Verify with `docker exec Doggobot getent hosts rasputin`.
