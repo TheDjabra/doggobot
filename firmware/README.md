@@ -45,7 +45,7 @@ correct on any variant.
 **The board on hand (identified 2026-08-29) is an ESP32-S3**: dual core plus LP core at 240 MHz,
 8 MB PSRAM, 16 MB flash, behind an **FT232R** bridge rather than the S3's native USB, so it
 enumerates as `/dev/ttyUSB*` and not `ttyACM*`. **Check GPIO 16/17 against this board's own
-pinout before wiring** — S3 dev boards vary and some route particular GPIOs to onboard
+pinout before wiring**. S3 dev boards vary and some route particular GPIOs to onboard
 peripherals. Any free pair works; change `RX_PIN`/`TX_PIN` to match.
 
 It arrived flashed with a **PWM servo sweep** (printing `us 600` … `us 2400`), which drives a
@@ -66,8 +66,55 @@ and gets replaced by the bring-up sketch.
 
 **Should**: accept "go to angle X", report actual angle back, clamp to a safe window.
 
-**Should not**: arbitrate between competing requests. Three things will want the pan axis — manual
-"look right", the follow controller keeping a target centred, and the reacquisition sweep — and
+**Should not**: arbitrate between competing requests. Three things will want the pan axis: manual
+"look right", the follow controller keeping a target centred, and the reacquisition sweep, and
 that is the same multi-publisher problem that produced `arbiter_node` for the drive axis. The
 arbitration belongs on the Pi, in one place. An ESP32 that also tries to be clever gives you two
 arbiters disagreeing.
+
+## esp32_pan: the run-mode firmware
+
+`esp32_sts_bringup` is an interactive console for a human. `esp32_pan` is the one the robot
+actually uses, and it is deliberately dumb: it sets angles and reports angles. It decides
+nothing about where to look.
+
+That split matters. A microcontroller that second-guesses its host is a second controller
+fighting the first, which is the exact failure `arbiter_node` exists to prevent, relocated one
+layer down where it is much harder to see.
+
+### Protocol
+
+Newline-terminated ASCII, 115200 baud, both directions.
+
+| Host to ESP32 | Meaning |
+|---|---|
+| `p <deg>` | target angle, signed degrees, 0 is centre |
+| `v <deg/s>` | slew speed limit |
+| `e <0\|1>` | torque enable, 0 lets you move it by hand |
+| `c` | centre |
+| `?` | one status line now |
+| `i` | identity banner |
+
+The ESP32 streams status at 50 Hz:
+
+```
+s <deg> <target> <moving> <load> <volts> <temp> <errs>
+```
+
+Lines starting `#` are human-readable and carry no state. Angles cross this wire, never encoder
+counts: that the STS3215 happens to put centre at 2048 is an implementation detail of this
+file and nothing upstream should have to know it.
+
+### Safety
+
+A hard clamp at +/-80 degrees lives in the firmware as well as in `pan_node`, because this is
+the layer that cannot be talked out of it. A bad angle from a ROS bug, a mistyped serial
+command, or a garbled byte all stop at the same wall. This axis free-spins, and an unclamped
+target has previously walked it into its own wiring.
+
+### Flashing
+
+```bash
+arduino-cli compile --fqbn esp32:esp32:esp32s3 -u -p /dev/ttyUSB0 esp32_pan
+python3 ../tools/pan_console.py --selftest
+```

@@ -35,6 +35,7 @@ setup(
             'stt_node = doggobot.stt_node:main',
             'safety_node = doggobot.safety_node:main',
             'llm_node = doggobot.llm_node:main',
+            'pan_node = doggobot.pan_node:main',
         ],
     },
 )

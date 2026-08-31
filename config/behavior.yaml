@@ -62,3 +62,19 @@ behavior_node:
     metres_per_second: 0.9
     degrees_per_second: 60.0
     max_metres: 8.0
+
+    # --- camera pan axis (added 2026-08-30) ---
+    # behavior_node is the sole /pan_cmd publisher, the same rule that keeps two
+    # nodes off /cmd_vel. Priority is follow tracking > spoken look > recentre.
+    pan_enabled: true
+    pan_look_deg: 45.0          # where "atlas look left" puts the camera
+    pan_centre_on_idle: true    # camera returns forward when nothing is tracked
+    pan_publish_hz: 20.0
+
+    # Escalation to a three-point turn when the camera is pinned and the chassis
+    # cannot come round. OFF for the demo: it is the least-tested path in here,
+    # and a surprise three-point turn in front of the class is worse than a wide
+    # arc. Turn on only after it has been watched on the ground.
+    pan_escalate: false
+    pan_escalate_deg: 55.0
+    pan_escalate_s: 2.5

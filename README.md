@@ -1,6 +1,6 @@
 # Doggobot
 
-**Voice-Controlled Autonomous Navigation** — MAE/ECE 148 Team 4, UC San Diego, Summer Session 2
+**Voice-Controlled Autonomous Navigation**. MAE/ECE 148 Team 4, UC San Diego, Summer Session 2
 2026.
 
 Cesar Montiel (ECE) · Hektoras Djabra (MAE) · Naveen Weedagama (MAE)

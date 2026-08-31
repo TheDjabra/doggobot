@@ -36,7 +36,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import CompressedImage
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Float32, String
 
 def _web_dir():
     """Find index.html whether installed or running from a symlinked source tree."""
@@ -81,6 +81,11 @@ class BridgeNode(Node):
         self.color_pub = self.create_publisher(String, 'color_config', 10)
         self.video_pub = self.create_publisher(String, 'video_config', 10)
         self.autonomy_pub = self.create_publisher(Bool, 'autonomy_enabled', 10)
+        # NOT /pan_cmd. behavior_node is the sole writer to that topic and
+        # arbitrates the camera between follow tracking and a manual look; the
+        # phone is just another claimant and gets the same treatment as a spoken
+        # "look left" rather than a private line to the servo.
+        self.pan_pub = self.create_publisher(Float32, 'pan_manual', 10)
 
         # Latest perception state, pushed to the phone so the operator can see
         # WHAT the car is following rather than inferring it from behaviour.
@@ -93,11 +98,13 @@ class BridgeNode(Node):
         # rather than what the operator last asked for.
         self.behavior = {'active': None}
         self.create_subscription(String, 'behavior_state', self._on_behavior, 10)
+        self.create_subscription(String, 'pan_state', self._on_pan, 10)
 
         self.arbiter = {'armed': False}
         self.create_subscription(String, 'arbiter/status', self._on_arbiter, 10)
 
         self.condition = {'color': None, 'areas': {}}
+        self.pan = {'ok': False, 'deg': None, 'target': 0.0}
         self.create_subscription(
             String, 'condition_state', self._on_condition, 10)
 
@@ -147,6 +154,12 @@ class BridgeNode(Node):
     def _on_frame(self, msg):
         self.frame = bytes(msg.data)
 
+    def _on_pan(self, msg):
+        try:
+            self.pan = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            pass
+
     def _on_condition(self, msg):
         try:
             self.condition = json.loads(msg.data)
@@ -192,6 +205,13 @@ class BridgeNode(Node):
             self._disarm_timer.cancel()
             self.destroy_timer(self._disarm_timer)
             self._disarm_timer = None
+
+    def publish_pan(self, deg):
+        try:
+            d = float(deg)
+        except (TypeError, ValueError):
+            return
+        self.pan_pub.publish(Float32(data=max(-90.0, min(90.0, d))))
 
     def publish_lock(self, engage):
         action = 'lock' if engage else 'release'
@@ -300,6 +320,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                         {'type': 'arbiter', **node.arbiter}))
                     await sock.send_text(json.dumps(
                         {'type': 'condition', **node.condition}))
+                    await sock.send_text(json.dumps(
+                        {'type': 'pan', **node.pan}))
                     await asyncio.sleep(0.2)
             except Exception:                                # noqa: BLE001
                 pass
@@ -330,6 +352,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                 elif kind == 'command':
                     node.publish_action(msg.get('action', ''),
                                         msg.get('seconds'))
+                elif kind == 'pan':
+                    node.publish_pan(msg.get('deg', 0.0))
                 elif kind == 'lock':
                     node.publish_lock(bool(msg.get('engage', True)))
                 elif kind == 'ping':

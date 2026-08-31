@@ -89,7 +89,7 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from std_msgs.msg import Bool, String
+from std_msgs.msg import Bool, Float32, String
 
 # Longest match first, so "circle left" cannot be swallowed by "left".
 #
@@ -109,6 +109,10 @@ KEYWORDS = [
                       'back')),
     ('forward',      ('go forward', 'forward', 'go straight', 'straight',
                       'ahead')),
+    ('look_left',    ('look left', 'look to the left', 'camera left')),
+    ('look_right',   ('look right', 'look to the right', 'camera right')),
+    ('look_forward', ('look forward', 'look ahead', 'look straight',
+                      'eyes front', 'camera centre', 'camera center')),
     ('follow',       ('follow me', 'follow', 'come here')),
     ('wait',         ('wait', 'hold', 'stay', 'freeze')),
     ('stop',         ('stop it', 'stop', 'halt')),
@@ -172,6 +176,23 @@ class BehaviorNode(Node):
         # 2026-08-26, when overheard speech matched "back" and reversed the car
         # mid-test. The phone does not need this because holding the talk button
         # is already a deliberate act, so the requirement is per-source.
+        # -- camera pan axis --
+        # behavior_node is the sole /pan_cmd publisher for the same reason it is
+        # the sole /behavior_cmd publisher: follow tracking, a spoken "look left"
+        # and an idle recentre are three claimants on one actuator.
+        self.declare_parameter('pan_enabled', True)
+        self.declare_parameter('pan_look_deg', 45.0)
+        self.declare_parameter('pan_centre_on_idle', True)
+        self.declare_parameter('pan_publish_hz', 20.0)
+        # Escalation: if the camera sits pinned far off the nose, the chassis has
+        # failed to turn to face the target and steering harder will not fix it,
+        # because a car cannot turn in place. A three-point turn can.
+        # OFF by default: it is the newest and least tested path here, and an
+        # unexpected three-point turn during the demo is worse than a wide arc.
+        self.declare_parameter('pan_escalate', False)
+        self.declare_parameter('pan_escalate_deg', 55.0)
+        self.declare_parameter('pan_escalate_s', 2.5)
+
         self.declare_parameter('wake_word', 'atlas')
         self.declare_parameter('wake_word_sources', ['onboard-mic'])
 
@@ -192,6 +213,13 @@ class BehaviorNode(Node):
         self.mps = max(0.05, float(g('metres_per_second').value))
         self.dps = max(1.0, float(g('degrees_per_second').value))
         self.max_m = float(g('max_metres').value)
+        self.pan_enabled = bool(g('pan_enabled').value)
+        self.pan_look = float(g('pan_look_deg').value)
+        self.pan_centre_idle = bool(g('pan_centre_on_idle').value)
+        self.pan_escalate = bool(g('pan_escalate').value)
+        self.pan_escalate_deg = float(g('pan_escalate_deg').value)
+        self.pan_escalate_s = float(g('pan_escalate_s').value)
+
         self.wake = str(g('wake_word').value).lower().strip()
         self.wake_sources = set(g('wake_word_sources').value or [])
 
@@ -203,6 +231,13 @@ class BehaviorNode(Node):
         self.conditions = {}        # latest observed conditions
         self.follow_cmd = Twist()
         self.follow_fresh = 0.0
+
+        self.follow_pan = 0.0       # angle the follow cascade wants
+        self.follow_pan_fresh = 0.0
+        self.pan_manual = None      # angle a spoken "look left" is holding
+        self.pan_deg = None         # measured, from pan_node
+        self.pan_over_since = 0.0   # when the pan angle first pinned out
+        self.escalating = False     # a manoeuvre WE started; do not cancel it
 
         self.cmd_pub = self.create_publisher(Twist, 'behavior_cmd', 10)
         self.lock_pub = self.create_publisher(String, 'target_lock', 10)
@@ -218,6 +253,15 @@ class BehaviorNode(Node):
         self.create_subscription(String, 'target_state', self._on_target, 10)
         self.create_subscription(String, 'condition_state', self._on_condition, 10)
         self.create_subscription(Bool, 'autonomy_enabled', self._on_autonomy, 10)
+        self.pan_pub = self.create_publisher(Float32, 'pan_cmd', 10)
+        self.create_subscription(Float32, 'follow_pan', self._on_follow_pan, 10)
+        self.create_subscription(String, 'pan_state', self._on_pan_state, 10)
+        # The phone's pan slider. Same standing as a spoken "look left": a manual
+        # preference that yields to the follow cascade when a target is locked.
+        self.create_subscription(Float32, 'pan_manual', self._on_pan_manual, 10)
+        if self.pan_enabled:
+            self.create_timer(1.0 / float(g('pan_publish_hz').value),
+                              self._pan_tick)
 
         self.create_timer(1.0 / self.hz, self._tick)
         self.get_logger().info(
@@ -400,6 +444,74 @@ class BehaviorNode(Node):
         self.follow_cmd = msg
         self.follow_fresh = time.time()
 
+    def _on_follow_pan(self, msg):
+        self.follow_pan = float(msg.data)
+        self.follow_pan_fresh = time.time()
+
+    def _on_pan_manual(self, msg):
+        self.pan_manual = max(-90.0, min(90.0, float(msg.data)))
+
+    def _on_pan_state(self, msg):
+        try:
+            d = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            return
+        self.pan_deg = d.get('deg') if d.get('ok') else None
+
+    def _pan_tick(self):
+        """Sole writer to /pan_cmd. Priority: follow > manual look > centre.
+
+        Following outranks a spoken "look left" because the tracker is closing a
+        loop and the look is a one-off preference; a manual angle held during a
+        follow would just be fought, once per frame, by a controller that has
+        better information about where the target is.
+        """
+        now = time.time()
+        following = (self.active == 'follow'
+                     and (now - self.follow_pan_fresh) < 0.5)
+
+        if following:
+            if self.pan_manual is not None:
+                self.pan_manual = None      # the tracker has the camera now
+            target = self.follow_pan
+        elif self.pan_manual is not None:
+            target = self.pan_manual
+        elif self.pan_centre_idle:
+            target = 0.0
+        else:
+            return
+
+        self.pan_pub.publish(Float32(data=float(target)))
+        self._check_escalation(following, now)
+
+    def _check_escalation(self, following, now):
+        """A camera pinned hard off the nose means the chassis has given up.
+
+        Steering is already saturated at that point, so the outer loop has no
+        authority left; what it needs is a manoeuvre, not more gain.
+        """
+        if not (self.pan_escalate and following) or self.pan_deg is None:
+            self.pan_over_since = 0.0
+            return
+        if abs(self.pan_deg) <= self.pan_escalate_deg:
+            self.pan_over_since = 0.0
+            return
+        if self.pan_over_since == 0.0:
+            self.pan_over_since = now
+            return
+        if now - self.pan_over_since < self.pan_escalate_s:
+            return
+
+        self.pan_over_since = 0.0
+        self.get_logger().info(
+            f'pan pinned at {self.pan_deg:+.0f} deg for {self.pan_escalate_s:g}s: '
+            'the chassis cannot come round, escalating to a three point turn')
+        # The lock is deliberately kept. This is a manoeuvre in service of the
+        # follow, not an abandonment of it, and the flag stops _on_target from
+        # immediately cancelling the very sequence we just started.
+        self.escalating = True
+        self._start('three_point')
+
     def _on_target(self, msg):
         """Enter and leave follow mode from perception's lock state.
 
@@ -416,6 +528,8 @@ class BehaviorNode(Node):
             self._release_lock()
             return
         if locked and self.active != 'follow':
+            if self.escalating:
+                return          # a turn we started on purpose; let it finish
             self._cancel_sequence('follow lock acquired')
             self._enter('follow', 0.0)
         elif not locked and self.active == 'follow':
@@ -486,6 +600,7 @@ class BehaviorNode(Node):
     def _next_step(self):
         if not self.sequence:
             self.get_logger().info('sequence complete')
+            self.escalating = False
             self.seq_len = 0
             self.step_condition = None
             self._enter(None, 0.0)
@@ -505,6 +620,7 @@ class BehaviorNode(Node):
     def _cancel_sequence(self, why):
         if self.sequence or self.seq_len:
             self.get_logger().info(f'sequence cancelled: {why}')
+        self.escalating = False
         self.sequence = []
         self.seq_len = 0
         self.step_condition = None
@@ -529,6 +645,28 @@ class BehaviorNode(Node):
 
     def _start(self, action, seconds=None, in_sequence=False,
                metres=None, degrees=None):
+        # The look primitives move a DIFFERENT actuator, so they are handled
+        # before the drive-axis bookkeeping below. "Look left" while driving
+        # forward should turn the camera and nothing else: it must not cancel a
+        # running sequence, and it must not stop the car.
+        if action in ('look_left', 'look_right', 'look_forward'):
+            if not self.pan_enabled:
+                self.get_logger().warn('no pan axis configured')
+                return
+            if action == 'look_forward':
+                self.pan_manual = 0.0
+            else:
+                mag = abs(float(degrees)) if degrees is not None else self.pan_look
+                mag = max(0.0, min(90.0, mag))
+                self.pan_manual = mag if action == 'look_right' else -mag
+            if self.active == 'follow':
+                self.get_logger().info(
+                    'camera is tracking a target; the look will apply once the '
+                    'follow ends')
+            else:
+                self.get_logger().info(f'look: pan to {self.pan_manual:+.0f} deg')
+            return
+
         if not in_sequence:
             # A single command mid-sequence cancels the whole thing. "Stop" must
             # stop the car, not just the current step of something continuing.

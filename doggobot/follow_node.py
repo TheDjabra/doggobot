@@ -1,13 +1,42 @@
 #!/usr/bin/env python3
-"""Follow controller: /target_state -> /follow_cmd.
+"""Follow controller: /target_state -> /follow_cmd + /follow_pan.
 
-Two independent loops over two numbers:
+A CASCADE, not two controllers arguing over one error. Each loop closes on a
+different error and they run an order of magnitude apart in speed:
 
-    steering  PD on  x       (bbox centre offset, -1..1, 0 = centred)
-    throttle  PD on  z_mm    against a standoff setpoint
+    inner   x            -> pan servo   keep the target centred IN FRAME
+    outer   bearing      -> steering    point the CHASSIS where the camera looks
+            z_mm         -> throttle    against a standoff setpoint
 
-Nothing here knows about pixels, frame size, or the camera. perception_node
-publishes `x` as an error term precisely so this file cannot care.
+The camera chases the target and the car chases the camera. When the pan angle
+returns to zero the car is aimed at the target by construction. This is gaze
+stabilisation on a mobile base, the same structure as a turret except the base
+moves too.
+
+The point of it is that the target can no longer leave the frame during a turn.
+With a fixed camera the tracking error and the car's turning radius were the same
+loop, so a tight turn in a small room lost the lock. Now keeping the target in
+frame is the inner loop's only job and it is not coupled to the chassis at all.
+
+The bearing is the whole trick:
+
+    bearing_deg = pan_deg + x * half_fov_deg      angle to target, chassis frame
+    err_steer   = bearing_deg / half_fov_deg      normalised, so gains carry over
+
+Note what that reduces to when pan_deg is 0: `err_steer == x`, exactly the
+fixed-camera controller this file used to be. So a dead pan axis, an unplugged
+ESP32, or `use_pan: false` all degrade to the old behaviour with the old tuning
+rather than to a special case that only gets exercised when something is broken.
+
+THE STALE-ANGLE TRAP. `x` describes a frame captured ~100 ms ago; the pan angle
+read now is not the angle the camera had when that frame was taken. At a 120 deg/s
+slew that is 12 degrees of pure fiction, which is larger than the errors being
+controlled. Combining them naively produces a loop that looks badly tuned and
+cannot be fixed by tuning. Hence the ring buffer: the pan angle is looked up at
+the frame's own timestamp.
+
+Nothing here knows about pixels or frame size. perception_node publishes `x` as
+an error term precisely so this file cannot care.
 
 Behaviour by target status:
 
@@ -38,7 +67,7 @@ import time
 import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import Float32, String
 
 
 class PID:
@@ -107,6 +136,34 @@ class FollowNode(Node):
         # reads as the car bolting rather than yielding.
         self.declare_parameter('max_reverse', 0.16)
 
+        # -- pan cascade --
+        # half_fov_deg converts the normalised bbox offset into an angle. It is
+        # NOT simply the camera's spec sheet HFOV: `x` is normalised across the
+        # detector's input, which is letterboxed, so the effective angle per unit
+        # of x has to be measured. Put the target at a known bearing, read x,
+        # divide. Until that is done 34.5 (OAK-D Lite RGB HFOV/2) is the estimate.
+        self.declare_parameter('use_pan', True)
+        self.declare_parameter('half_fov_deg', 34.5)
+        self.declare_parameter('kp_pan', 0.55)
+        self.declare_parameter('kd_pan', 0.05)
+        self.declare_parameter('pan_limit_deg', 70.0)
+        self.declare_parameter('pan_deadband', 0.04)
+        # Resync the integrated pan command to the measured angle if they drift
+        # apart: that means a stall, a slipped mount, or someone holding it.
+        self.declare_parameter('pan_slip_deg', 15.0)
+        self.declare_parameter('pan_stale_s', 0.5)
+        # perception_node stamps /target_state at PUBLISH time, not capture time,
+        # so the frame is already this old when the stamp is written. The pan
+        # history is looked up at (stamp - capture_lag_s) to compensate. Measure
+        # it rather than guessing: it is the gap between the OAK's frame clock
+        # and the publish, and it is the difference between a loop that tracks
+        # and one that hunts. 0.0 disables the correction.
+        self.declare_parameter('capture_lag_s', 0.0)
+        # Above this bearing, stop driving and turn first. A car cannot strafe,
+        # so creeping forward while the target is off to one side only makes the
+        # geometry worse. behavior_node escalates to a three-point turn.
+        self.declare_parameter('align_before_drive_deg', 50.0)
+
         self.declare_parameter('target_timeout_s', 0.5)
         self.declare_parameter('debug_hz', 0.0)   # >0 logs decisions at that rate
 
@@ -129,6 +186,25 @@ class FollowNode(Node):
         self.debug_hz = float(g('debug_hz').value)
         self._last_debug = 0.0
 
+        self.use_pan = bool(g('use_pan').value)
+        self.half_fov = float(g('half_fov_deg').value)
+        self.kp_pan = float(g('kp_pan').value)
+        self.kd_pan = float(g('kd_pan').value)
+        self.pan_limit = float(g('pan_limit_deg').value)
+        self.pan_deadband = float(g('pan_deadband').value)
+        self.pan_slip = float(g('pan_slip_deg').value)
+        self.pan_stale = float(g('pan_stale_s').value)
+        self.capture_lag = float(g('capture_lag_s').value)
+        self.align_deg = float(g('align_before_drive_deg').value)
+
+        # Output is an angular CORRECTION in units of x; scaled to degrees by
+        # half_fov at the call site, then integrated onto the commanded angle.
+        self.pan_pid = PID(self.kp_pan, 0.0, self.kd_pan)
+        self.pan_cmd = 0.0            # what we last asked for (integrated)
+        self.pan_hist = []            # (stamp, measured_deg) ring buffer
+        self.pan_ok = False
+        self.pan_last_msg = 0.0
+
         self.last_stamp = None
         self.last_msg_time = 0.0
         self.last_steer = 0.0
@@ -138,7 +214,11 @@ class FollowNode(Node):
         # when follow is the active primitive. Two publishers on one command
         # topic is the same race the arbiter exists to prevent, one layer up.
         self.cmd_pub = self.create_publisher(Twist, 'follow_cmd', 10)
+        # NOT /pan_cmd: pan_node has one writer and behavior_node is it, the same
+        # arbitration rule that keeps this node off /behavior_cmd.
+        self.pan_pub = self.create_publisher(Float32, 'follow_pan', 10)
         self.create_subscription(String, 'target_state', self._on_target, 10)
+        self.create_subscription(String, 'pan_state', self._on_pan, 10)
 
         # A watchdog so that perception dying is not mistaken for "target
         # centred". Without it the last command would simply stop being updated.
@@ -168,6 +248,42 @@ class FollowNode(Node):
         mag = max(self.floor, min(ceiling, abs(value)))
         return math.copysign(mag, value)
 
+    def _on_pan(self, msg):
+        """Keep a short history of measured pan angles, tagged by arrival time.
+
+        A ring buffer rather than a single latest value, because the follow loop
+        needs the angle the camera HAD when a frame was captured, not the angle
+        it has now. See the stale-angle trap in the module docstring.
+        """
+        try:
+            d = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            return
+        self.pan_last_msg = time.time()
+        self.pan_ok = bool(d.get('ok')) and d.get('deg') is not None
+        if not self.pan_ok:
+            return
+        self.pan_hist.append((float(d.get('stamp', time.time())), float(d['deg'])))
+        if len(self.pan_hist) > 60:          # ~3 s at 20 Hz, far more than needed
+            self.pan_hist = self.pan_hist[-60:]
+
+    def _pan_at(self, stamp):
+        """Measured pan angle at a past instant, or None if the axis is not live."""
+        if not self.pan_enabled():
+            return None
+        if not self.pan_hist:
+            return None
+        best = min(self.pan_hist, key=lambda e: abs(e[0] - stamp))
+        # If the closest sample is far from the frame, the history is not usable
+        # and guessing is worse than declaring the axis unavailable.
+        if abs(best[0] - stamp) > 0.5:
+            return None
+        return best[1]
+
+    def pan_enabled(self):
+        return (self.use_pan and self.pan_ok
+                and (time.time() - self.pan_last_msg) < self.pan_stale)
+
     def _watchdog(self):
         if self.state is None:
             return
@@ -195,6 +311,10 @@ class FollowNode(Node):
                 self.state = status
                 self.steer_pid.reset()
                 self.thr_pid.reset()
+                self.pan_pid.reset()
+                # Do NOT recentre the camera here. behavior_node decides where it
+                # points when nothing is being followed, because a search sweep
+                # also wants the axis and this node is no longer the only claimant.
             return                       # silent: arbiter times out and stops
 
         stamp = float(t.get('stamp', time.time()))
@@ -203,7 +323,9 @@ class FollowNode(Node):
 
         if status == 'LOST':
             # Keep the lock and keep pointing, but do not drive toward something
-            # we cannot currently see.
+            # we cannot currently see. The camera holds its angle rather than
+            # recentring: the target was last seen there, so that is the best
+            # place to be looking when it reappears.
             cmd = Twist()
             cmd.angular.z = self.last_steer
             cmd.linear.x = 0.0
@@ -215,9 +337,42 @@ class FollowNode(Node):
             self.state = status
             return
 
-        # --- steering: PD on centre offset ---
         x = float(t.get('x', 0.0))
-        steer = 0.0 if abs(x) < self.steer_deadband else self.steer_pid.step(x, dt)
+
+        # --- inner loop: aim the camera ---
+        # Integrated on the LAST COMMANDED angle, not the measured one. The servo
+        # takes ~0.5 s to settle while frames arrive every 80 ms, so correcting
+        # from the measured angle would repeatedly re-issue corrections the servo
+        # is still in the middle of executing, and the axis would crawl.
+        # Commanded is what we actually control; the slip check below is what
+        # keeps that from drifting away from reality.
+        pan_meas = self._pan_at(stamp - self.capture_lag)
+        if pan_meas is not None:
+            if abs(self.pan_cmd - pan_meas) > self.pan_slip:
+                self.get_logger().warn(
+                    f'pan slip: commanded {self.pan_cmd:+.0f} but measured '
+                    f'{pan_meas:+.0f}, resyncing')
+                self.pan_cmd = pan_meas
+            # Step the PD every frame even inside the deadband, so its
+            # derivative history stays continuous; only the OUTPUT is gated.
+            # A D term fed intermittently differentiates the gaps as well as the
+            # signal and kicks on the first sample after a quiet stretch.
+            correction = self.pan_pid.step(x, dt) * self.half_fov
+            if abs(x) >= self.pan_deadband:
+                self.pan_cmd = max(-self.pan_limit,
+                                   min(self.pan_limit, self.pan_cmd + correction))
+            self.pan_pub.publish(Float32(data=float(self.pan_cmd)))
+
+        # --- bearing: where the target is relative to the CHASSIS ---
+        # With no pan axis this is x * half_fov, so err_steer collapses to x and
+        # the original fixed-camera controller is recovered exactly.
+        pan_for_bearing = pan_meas if pan_meas is not None else 0.0
+        bearing = pan_for_bearing + x * self.half_fov
+        err_steer = bearing / self.half_fov
+
+        # --- outer loop: point the chassis ---
+        steer = (0.0 if abs(err_steer) < self.steer_deadband
+                 else self.steer_pid.step(err_steer, dt))
         steer = max(-self.max_steer, min(self.max_steer, steer))
 
         # --- throttle: PD on distance against the standoff ---
@@ -229,7 +384,15 @@ class FollowNode(Node):
                 raw = self.thr_pid.step(err, dt)
                 if raw < 0 and not self.allow_reverse:
                     raw = 0.0
-                throttle = self._step_over_floor(raw)
+                # Badly misaligned: turn first. Driving forward at a target 60
+                # degrees off the nose closes very little of the actual gap and
+                # swings the bearing further out. Above the threshold, stop; below
+                # it, scale by cos so speed falls off smoothly as alignment goes.
+                if abs(bearing) > self.align_deg:
+                    raw = 0.0
+                else:
+                    raw *= max(0.0, math.cos(math.radians(bearing)))
+                throttle = self._step_over_floor(raw) if raw else 0.0
             else:
                 self.thr_pid.reset()
 
@@ -247,8 +410,10 @@ class FollowNode(Node):
                 self._last_debug = now
                 err_s = (f'{z - self.standoff:+7.0f}' if z > 0
                          else '  no-depth')
+                pan_s = (f'{pan_meas:+5.1f}' if pan_meas is not None else '  off')
                 self.get_logger().info(
-                    f'x={x:+.3f} z={z:6.0f} err={err_s} '
+                    f'x={x:+.3f} pan={pan_s} brg={bearing:+6.1f} '
+                    f'z={z:6.0f} err={err_s} '
                     f'-> steer={steer:+.3f} thr={throttle:+.3f}')
 
         self.last_steer = steer

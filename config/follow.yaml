@@ -58,3 +58,38 @@ follow_node:
 
     debug_hz: 2.0             # log x, z, err, steer, throttle from one message.
                               # Set 0 for quiet running.
+
+    # --- pan cascade (added 2026-08-30) ---
+    # The camera is an inner loop that keeps the target framed; the car is an
+    # outer loop that points the chassis where the camera looks. See the module
+    # docstring in follow_node.py for why the bearing is computed the way it is.
+    #
+    # Verified in simulation before any of it touched the car
+    # (tools/sim_cascade.py, 7/7): with the car stopped at the standoff and a
+    # person walking around it, a fixed camera loses them for 89% of frames and
+    # the lock with it. The pan axis loses 0%.
+    use_pan: true
+
+    # NOT the camera's spec-sheet HFOV. `x` is normalised across the DETECTOR's
+    # letterboxed input, so the degrees-per-unit-x has to be measured: put the
+    # target at a known bearing, read x from /target_state, divide. 34.5 is the
+    # OAK-D Lite RGB half-HFOV and is a placeholder until that is done.
+    half_fov_deg: 34.5
+
+    kp_pan: 0.55        # fraction of the angular error to correct per frame.
+                        # 1.0 would be deadbeat and will ring, because the servo
+                        # is still moving when the next frame arrives.
+    kd_pan: 0.05
+    pan_limit_deg: 70.0
+    pan_deadband: 0.04
+    pan_slip_deg: 15.0  # commanded vs measured gap that means a stall or a
+                        # slipped mount, and forces a resync to reality
+    pan_stale_s: 0.5
+
+    # Measure this. It is the age of a frame when follow_node sees it, and at a
+    # 120 deg/s slew every 100 ms of it is 12 degrees of fiction in the bearing.
+    capture_lag_s: 0.08
+
+    # Above this bearing, stop and turn rather than drive. A car cannot strafe,
+    # so closing on a target 50 degrees off the nose mostly makes the angle worse.
+    align_before_drive_deg: 50.0

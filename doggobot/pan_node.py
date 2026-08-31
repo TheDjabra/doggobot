@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+"""Camera pan axis driver: /pan_cmd -> serial -> /pan_state.
+
+Sole owner of the ESP32 serial port, for the same reason arbiter_node is the sole
+/cmd_vel publisher. Three separate things want to aim this camera:
+
+    follow tracking     keep the target centred in frame
+    manual look         "atlas look left"
+    search sweep        scan after losing a lock
+
+Two of them writing to one serial port interleaves half-written command lines and
+produces motion nobody asked for. So they do not get the port: behavior_node
+arbitrates and emits a single /pan_cmd, exactly as it already arbitrates
+/behavior_cmd, and this node just does as it is told.
+
+SIGN CONVENTION, defined once, here, because three signs meet in the follow
+cascade and any one of them backwards turns a converging loop into a diverging
+one:
+
+    x         > 0   target is RIGHT of frame centre   (perception_node)
+    pan       > 0   camera points RIGHT of the chassis centreline  (this file)
+    angular.z > 0   car steers RIGHT                  (verify per vehicle)
+
+`invert` flips the servo direction without a reflash, because which way the
+gearing faces is not known until the mount is bolted on.
+
+Published state is a health signal as much as a measurement. `ok` goes false when
+status lines stop arriving, so the follow cascade can fall back to fixed-camera
+behaviour rather than steering the car on a pan angle frozen at whatever it last
+happened to be.
+"""
+import json
+import math
+import threading
+import time
+
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import Float32, String
+
+try:
+    import serial
+except ImportError:                                          # pragma: no cover
+    serial = None
+
+
+class PanNode(Node):
+
+    def __init__(self):
+        super().__init__('pan_node')
+
+        # By-id, not /dev/ttyUSB0: the LiDAR already claims ttyUSB0 on this Pi,
+        # and USB enumeration order is not a promise. See deploy/99-doggobot-serial.rules
+        self.declare_parameter('port', '/dev/doggobot-pan')
+        self.declare_parameter('fallback_port', '/dev/ttyUSB1')
+        self.declare_parameter('baud', 115200)
+        self.declare_parameter('invert', False)
+        self.declare_parameter('limit_deg', 75.0)
+        self.declare_parameter('centre_offset_deg', 0.0)
+        self.declare_parameter('slew_deg_s', 200.0)
+        self.declare_parameter('publish_hz', 20.0)
+        self.declare_parameter('stale_s', 0.5)
+        self.declare_parameter('min_command_delta_deg', 0.4)
+        self.declare_parameter('reconnect_s', 2.0)
+
+        g = self.get_parameter
+        self.port = g('port').value
+        self.fallback_port = g('fallback_port').value
+        self.baud = int(g('baud').value)
+        self.invert = bool(g('invert').value)
+        self.limit = float(g('limit_deg').value)
+        self.offset = float(g('centre_offset_deg').value)
+        self.slew = float(g('slew_deg_s').value)
+        self.stale_s = float(g('stale_s').value)
+        self.min_delta = float(g('min_command_delta_deg').value)
+        self.reconnect_s = float(g('reconnect_s').value)
+
+        self.ser = None
+        self.lock = threading.Lock()
+        self.deg = None
+        self.target = 0.0
+        self.moving = 0
+        self.volts = 0.0
+        self.temp = 0
+        self.errs = 0
+        self.last_line = 0.0
+        self.last_sent = None
+        self.running = True
+
+        self.state_pub = self.create_publisher(String, 'pan_state', 10)
+        self.create_subscription(Float32, 'pan_cmd', self._on_cmd, 10)
+
+        self.reader = threading.Thread(target=self._reader, daemon=True)
+        self.reader.start()
+        self.create_timer(1.0 / float(g('publish_hz').value), self._publish)
+
+        self.get_logger().info(
+            f'pan: {self.port} @ {self.baud}, limit +/-{self.limit:g} deg, '
+            f'invert={self.invert}')
+
+    # -- serial ---------------------------------------------------------------
+
+    def _open(self):
+        if serial is None:
+            self.get_logger().error('pyserial not installed: pip install pyserial')
+            return None
+        for path in (self.port, self.fallback_port):
+            if not path:
+                continue
+            try:
+                s = serial.Serial(path, self.baud, timeout=0.2)
+                time.sleep(2.0)          # the ESP32 reboots when DTR asserts
+                s.reset_input_buffer()
+                self.get_logger().info(f'pan axis connected on {path}')
+                # Push our slew limit; firmware defaults are for the bench.
+                s.write(f'v {self.slew}\n'.encode())
+                return s
+            except Exception as e:                           # noqa: BLE001
+                self.get_logger().warn(f'{path}: {e}')
+        return None
+
+    def _reader(self):
+        buf = ''
+        while self.running:
+            if self.ser is None:
+                self.ser = self._open()
+                if self.ser is None:
+                    time.sleep(self.reconnect_s)
+                    continue
+            try:
+                chunk = self.ser.read(256).decode('utf-8', 'replace')
+            except Exception as e:                           # noqa: BLE001
+                self.get_logger().warn(f'pan serial lost: {e}')
+                try:
+                    self.ser.close()
+                except Exception:                            # noqa: BLE001
+                    pass
+                self.ser = None
+                continue
+            if not chunk:
+                continue
+            buf += chunk
+            while '\n' in buf:
+                line, buf = buf.split('\n', 1)
+                self._parse(line.strip())
+
+    def _parse(self, line):
+        if not line:
+            return
+        if line.startswith('#'):
+            self.get_logger().info(f'pan fw: {line[1:].strip()}')
+            return
+        if not line.startswith('s '):
+            return
+        p = line.split()
+        if len(p) < 8:
+            return
+        try:
+            raw = None if p[1] == 'nan' else float(p[1])
+            with self.lock:
+                self.deg = None if raw is None else self._from_servo(raw)
+                self.moving = int(p[3])
+                self.volts = float(p[5])
+                self.temp = int(p[6])
+                self.errs = int(p[7])
+                self.last_line = time.time()
+        except ValueError:
+            return
+
+    # -- frame conversion -----------------------------------------------------
+    # Chassis frame is what the rest of the stack speaks. Servo frame is what the
+    # firmware speaks. The offset and inversion live on this boundary and nowhere
+    # else, so there is exactly one place to look when the camera aims wrong.
+
+    def _to_servo(self, chassis_deg):
+        d = -chassis_deg if self.invert else chassis_deg
+        return d + self.offset
+
+    def _from_servo(self, servo_deg):
+        d = servo_deg - self.offset
+        return -d if self.invert else d
+
+    # -- command --------------------------------------------------------------
+
+    def _on_cmd(self, msg):
+        want = float(msg.data)
+        if not math.isfinite(want):
+            return
+        want = max(-self.limit, min(self.limit, want))
+        self.target = want
+
+        # Do not spam the link with sub-degree corrections it cannot resolve.
+        # At 20 Hz an unfiltered PD output would send 20 near-identical lines a
+        # second, each costing a bus round trip, for motion below the servo's own
+        # resolution.
+        if self.last_sent is not None and abs(want - self.last_sent) < self.min_delta:
+            return
+
+        if self.ser is None:
+            return
+        try:
+            self.ser.write(f'p {self._to_servo(want):.2f}\n'.encode())
+            self.last_sent = want
+        except Exception as e:                               # noqa: BLE001
+            self.get_logger().warn(f'pan write failed: {e}')
+            self.ser = None
+
+    # -- state ----------------------------------------------------------------
+
+    def _publish(self):
+        with self.lock:
+            fresh = (time.time() - self.last_line) < self.stale_s
+            payload = {
+                'ok': bool(fresh and self.deg is not None),
+                'deg': round(self.deg, 2) if self.deg is not None else None,
+                'target': round(self.target, 2),
+                'moving': self.moving,
+                'volts': self.volts,
+                'temp': self.temp,
+                'errs': self.errs,
+                'stamp': time.time(),
+            }
+        self.state_pub.publish(String(data=json.dumps(payload)))
+
+    def destroy_node(self):
+        self.running = False
+        if self.ser is not None:
+            try:
+                self.ser.write(b'p 0\n')     # leave the camera looking forward
+                time.sleep(0.1)
+                self.ser.close()
+            except Exception:                                # noqa: BLE001
+                pass
+        super().destroy_node()
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = PanNode()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

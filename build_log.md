@@ -804,7 +804,7 @@ path.
 than a vendor API. Two reasons. Everything else in the project already runs on hardware we
 control, so the parser matching that is consistent rather than special. And as a demonstration,
 "the language model runs on a machine I own" is a materially different claim from "I called an
-API" — Magnus's framing, and it is the right one.
+API" is Magnus's framing, and it is the right one.
 
 **The schema is the safety mechanism, not the prompt.** Ollama constrains decoding to a JSON
 schema whose `action` and `until_color` fields are enums of the primitives that actually exist,
@@ -868,7 +868,7 @@ The node now converts numeric-looking config values to a JSON number, so either 
 YAML.
 
 **Result worth stating plainly**: sub-second parsing on our own hardware. The whole voice stack
-now runs on machines we own — speech offline on the Pi or in the phone's browser, detection on the
+now runs on machines we own: speech offline on the Pi or in the phone's browser, detection on the
 camera's VPU, language parsing on the desktop. Nothing about a spoken command leaves the network.
 
 ### Explicit LLM routing, and a prompt that describes mechanism (2026-08-29)
@@ -898,14 +898,14 @@ exists for. "spin right two times then reverse" was heard perfectly by the phone
 direction words became `forward`, and the second duration was attached to the wrong step.
 
 Cause: the system prompt listed the primitive *names* but never said what they physically do, and
-this car has **no "turn right" primitive** — turning is only expressible as driving in a circle.
+this car has **no "turn right" primitive**. Turning is only expressible as driving in a circle.
 Asked to map "go right", the model guessed. Rewritten to describe the mechanism ("there is no turn
 and keep going straight: the only way this car changes direction is by driving in a circle"),
 state that direction words mean circles, and that a duration belongs to the step it was spoken
 with. All five test cases correct afterwards, sub-second.
 
 **A test that cannot observe the thing that broke is not evidence.** The first run after the fix
-showed all five action sequences correct and I nearly stopped there — but the summary printed only
+showed all five action sequences correct and I nearly stopped there, but the summary printed only
 action names, so it was blind to durations, which were half the bug. Now prints arguments.
 
 ### Battery, and a profile that was wrong for weeks
@@ -961,7 +961,7 @@ sidesteps the Ackermann limit that no steering gain can change**, which matters 
 
 ### Video is capped by the detector, and trying to fix it broke everything
 
-Asked for 30 fps, measured **12.4** — identical to `/target_state`, because video comes from the
+Asked for 30 fps, measured **12.4**, identical to `/target_state`, because video comes from the
 tracker's passthrough, so every video frame is a detector frame. The 20 fps cap I had written was
 meaningless.
 
@@ -1006,3 +1006,128 @@ So distance is time multiplied by a rate, and **both rates are guesses until mea
 
 Until then "forward one metre" is confidently wrong. Both change with surface, slope and pack
 charge. The same session settles `turn_around_seconds` and the three three-point legs.
+
+## 2026-08-30 - The camera pan axis, and the follow cascade
+
+Away from the car, so everything here is bench work, code and simulation. The servo was on the
+Victus with a spare 2S pack.
+
+### The bus scan found nothing, and the reason was the first thing on the list
+
+Flashed `esp32_sts_bringup` clean and the scan came back `nothing on the bus`. The sketch's own
+error text lists four suspects in order, and the answer was suspect number one: TX and RX
+crossed. Swapping them in firmware found the servo immediately.
+
+```
+found ID 1  pos=1  volts=7.8
+```
+
+Working mapping is adapter **TX to GPIO 17**, adapter **RX to GPIO 16**. The naming reads
+backwards on purpose: `RX_PIN` is the pin the ESP32 receives on, so it wires to the adapter's
+transmit. The docs said the opposite and are now corrected.
+
+Worth noting because it is the cheap version of the lesson: the diagnostic paid for itself.
+Writing the suspects into the failure message, in likelihood order, turned a wiring hunt into
+one two-line edit.
+
+### Run-mode firmware
+
+`esp32_sts_bringup` is a console for a human; `esp32_pan` is a line protocol for `pan_node`. It
+sets angles and reports angles and decides nothing, because a microcontroller that second-guesses
+its host is a second controller fighting the first, which is exactly the failure `arbiter_node`
+exists to prevent, moved one layer down where it is harder to see.
+
+Angles cross the wire, never encoder counts. That the STS3215 puts centre at 2048 is an
+implementation detail of one file.
+
+`tools/pan_console.py --selftest` commands 0, +/-30 and +/-60 and reports measured against
+commanded:
+
+| target | reached | error | settle |
+|---|---|---|---|
+| +30 | +29.6 | -0.4 | 0.50 s |
+| -60 | -58.9 | +1.1 | 1.00 s |
+
+Zero bus errors, 7.9 V steady, roughly 120 deg/s. The self-test reports measured-against-commanded
+on purpose: "the servo moved" and "the servo went where it was told" are different claims and only
+the second one is worth anything to a control loop.
+
+### The actual design question: how do steering and camera angle combine
+
+They do not combine. They cascade.
+
+| loop | error | actuator |
+|---|---|---|
+| inner | `x`, bbox offset | pan servo, keeps the target framed |
+| outer | bearing | steering, points the chassis where the camera looks |
+
+The camera chases the target, the car chases the camera. The bearing carries it:
+
+    bearing_deg = pan_deg + x * half_fov_deg
+    err_steer   = bearing_deg / half_fov_deg
+
+The property that made this the right shape: when `pan_deg` is zero, `err_steer == x`, which is
+**exactly** the old fixed-camera controller. A dead servo, an unplugged ESP32 or `use_pan: false`
+all fall back to the previous behaviour with the previous gains. The degraded path is the
+well-tested path, not a special case that only runs when something is already broken.
+
+### Simulated before it touched the car
+
+`tools/sim_cascade.py` stubs rclpy and drives the **real** `FollowNode`. A test that
+reimplements the thing it tests proves only that two copies of the same mistake agree.
+
+| scenario | fixed camera | cascade |
+|---|---|---|
+| approach from 28 deg off | camera 2.8 deg off | 0.3 deg |
+| tight turn, 31 deg at 1.7 m | 16.6 deg off | 0.6 deg |
+| person circles a car stopped at the standoff | **out of frame 89%** | **0%** |
+
+The last row is the justification for the hardware, and the sim taught it rather than confirming
+it. My first pass gated on "is the chassis aimed at the target" and the tight-turn case failed for
+both configurations. That was not a controller bug: once the car reaches the standoff it stops,
+and a non-holonomic vehicle cannot change heading while stopped. From that instant the chassis has
+no authority over framing at all, and the camera is the only thing that can still aim. The
+acceptance criterion was wrong, not the code.
+
+Two scenarios deliberately invert a sign and are required to diverge, so the suite is known to be
+able to see the failure it claims to rule out.
+
+### The trap that would have cost an afternoon
+
+`x` describes a frame captured about 100 ms ago. The pan angle read *now* is not the angle the
+camera had then. At 120 deg/s that is 12 degrees of fiction injected into the bearing, larger than
+the errors being controlled, and it presents as a mistuned gain that no amount of tuning fixes.
+
+`follow_node` keeps a ring buffer of `(timestamp, angle)` and looks up the angle at the frame's own
+stamp. A related detail found while wiring it: `perception_node` stamps `/target_state` at
+**publish** time, not capture time, so `capture_lag_s` offsets the lookup.
+
+The inner loop integrates on the last **commanded** angle rather than the measured one, because
+the servo takes 0.5 s to settle while frames arrive every 80 ms; correcting from the measured
+angle re-issues corrections the servo is still executing and the axis crawls. A slip check
+resyncs to measurement if the two drift more than 15 degrees, which is what a stall or a slipped
+mount looks like.
+
+### Deployment traps, found before they bit
+
+**The LiDAR is already on `/dev/ttyUSB0`.** Adding a third USB serial device to a Pi that already
+has the VESC and the LiDAR is a race for kernel names, and if the ESP32 wins that number the LiDAR
+driver opens the servo bus and the safety node goes blind. `deploy/99-doggobot-serial.rules` keys
+on the FT232R's own serial, A5069RR4.
+
+**A container cannot be given a device it was not started with**, so the ESP32 means recreating
+it, and a recreate discards the `/etc/resolv.conf` DNS patch and the `ROS_DOMAIN_ID=66` line, both
+of which have already cost time once. `tools/setup_container.sh` re-applies them. It deliberately
+does not create the container: that is coursework.
+
+### Also corrected
+
+`docs/hardware.md` said the main pack is 3S. It is 4S. That is the same wrong number that was once
+set in VESC Tool and destroyed a pack by cutting off at 2.25 V per cell.
+
+### Still guesses
+
+`half_fov_deg` is the OAK-D Lite's half-HFOV as a placeholder, but `x` is normalised across the
+detector's **letterboxed** input, so degrees-per-unit-x has to be measured. `capture_lag_s`,
+`invert` and `centre_offset_deg` all need the real mount. None of them can be settled without the
+car.

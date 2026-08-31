@@ -244,6 +244,19 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
         <label class="slider">Max speed <span id="spdval">0.25</span>
           <input type="range" id="spd" min="0.13" max="0.30" step="0.01" value="0.25">
         </label>
+
+        <label class="slider">Camera <span id="panval">0&deg;</span>
+          <input type="range" id="pan" min="-70" max="70" step="1" value="0">
+        </label>
+        <div class="row">
+          <button class="btn" id="panl">Look L</button>
+          <button class="btn" id="panc">Centre</button>
+          <button class="btn" id="panr">Look R</button>
+        </div>
+        <div class="line" style="font-size:11px;letter-spacing:var(--track);
+             color:var(--c-ink-faint);display:flex;justify-content:space-between">
+          <span>camera</span><b id="panpos">--</b>
+        </div>
         <p class="note">
           Manual only. While this tab is open the car will not follow anyone or
           run a primitive, and switching here cancels whatever was running.
@@ -387,6 +400,13 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
       else if (m.type === 'behavior') {
         $('prim').textContent = m.active || '--';
       }
+      else if (m.type === 'pan') {
+        const b = $('panpos');
+        if (m.ok && m.deg !== null && m.deg !== undefined) {
+          b.textContent = `${m.deg > 0 ? '+' : ''}${m.deg.toFixed(0)}\u00B0`;
+          b.className = 'on';
+        } else { b.textContent = 'offline'; b.className = 'off'; }
+      }
       else if (m.type === 'arbiter') paintArm(!!m.armed);
       else if (m.type === 'condition') {
         const d = $('cdet');
@@ -405,6 +425,20 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     $('link').textContent = linked ? 'linked' : 'no link';
   }
   setInterval(() => send({ type: 'ping', t: performance.now() }), 1000);
+
+  /* Camera pan. Sent as a REQUEST on /pan_manual, not a servo command: while a
+     target is locked the follow cascade owns the camera and this is ignored,
+     which is why the readout shows the measured angle rather than the slider. */
+  const panSlider = $('pan');
+  function setPan(deg, moveSlider) {
+    if (moveSlider) panSlider.value = deg;
+    $('panval').textContent = `${deg > 0 ? '+' : ''}${deg}\u00B0`;
+    send({ type: 'pan', deg: deg });
+  }
+  panSlider.addEventListener('input', () => setPan(parseInt(panSlider.value, 10), false));
+  $('panl').addEventListener('click', () => setPan(-45, true));
+  $('panc').addEventListener('click', () => setPan(0, true));
+  $('panr').addEventListener('click', () => setPan(45, true));
 
   // ── teleop is a STREAM ───────────────────────────────────────────────
   // The page repeats the current input 20x a second. It never sends "go until

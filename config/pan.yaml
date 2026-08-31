@@ -1,0 +1,22 @@
+pan_node:
+  ros__parameters:
+    # By-id, NOT /dev/ttyUSB0: the LD06 LiDAR already claims ttyUSB0 on this Pi
+    # and USB enumeration order is not a promise. Install the udev rule first:
+    #   sudo cp deploy/99-doggobot-serial.rules /etc/udev/rules.d/
+    #   sudo udevadm control --reload && sudo udevadm trigger
+    port: /dev/doggobot-pan
+    fallback_port: /dev/ttyUSB1     # only if the rule is not installed yet
+    baud: 115200
+
+    # Which way the servo faces is a property of the mount, not the code.
+    # Set this once the bracket is on: command "look right" and see which way it
+    # goes. Getting it wrong makes the follow cascade diverge, not wander.
+    invert: false
+    centre_offset_deg: 0.0          # mechanical zero trim, chassis frame
+
+    limit_deg: 75.0                 # inside the firmware's own 80 deg clamp
+    slew_deg_s: 200.0               # measured ceiling is ~120; this is a request
+    publish_hz: 20.0
+    stale_s: 0.5
+    min_command_delta_deg: 0.4      # do not spend a bus round trip on noise
+    reconnect_s: 2.0

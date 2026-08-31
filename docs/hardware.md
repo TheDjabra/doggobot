@@ -64,6 +64,38 @@ with a hobby PWM servo that angle is the commanded value with nothing verifying 
 reached it. Here it is measured. The load read-back is also how a binding cable gets caught
 before it strips a gear during a sweep.
 
+### Bench bring-up, verified 2026-08-30
+
+Done on the Victus with a spare 2S 2200 mAh pack, before anything was mounted, because the
+cheapest place to find a wiring fault is on a desk.
+
+| Check | Result |
+|---|---|
+| Bus scan | `found ID 1  pos=1  volts=7.8` |
+| Commanded 0, +/-30, +/-60 deg | every angle reached, worst error 1.1 deg |
+| Settle time | 0.50 s for 30 deg, 1.00 s for a 120 deg swing, so roughly 120 deg/s |
+| Bus read failures | 0 across the whole run |
+| Supply under load | 7.8 to 7.9 V, no measurable sag |
+| Temperature | 28 to 29 C |
+
+**Verified pin mapping.** The first scan found nothing on the bus, and the cause was the first
+suspect on the list below: TX and RX crossed.
+
+| Adapter | ESP32-S3 |
+|---|---|
+| TX | GPIO **17** |
+| RX | GPIO **16** |
+| GND | GND |
+
+The naming reads backwards on purpose. `RX_PIN` is the pin the ESP32 receives on, so it wires
+to the adapter's transmit. Reproduce the check any time with `tools/pan_console.py --selftest`,
+which reports measured-against-commanded error rather than declaring success on a write that
+returned no error.
+
+The USB bridge is an FTDI FT232R, serial **A5069RR4**. That serial is what
+`deploy/99-doggobot-serial.rules` matches on, so the device gets a stable name instead of
+racing the LiDAR and the VESC for `/dev/ttyUSB0`.
+
 ### Facts carried over from prior work with these servos
 
 - Board jumper on **A / UART**. Adapter TX to host RX, adapter RX to host TX. If a bus scan
@@ -79,9 +111,13 @@ before it strips a gear during a sweep.
 
 ### Power
 
-The servo is 7.4 V and the car's main pack is 3S (11.1 V nominal, 12.6 V charged), so it does
-not run off the main pack. A separate 2S pack feeds the adapter, sized for stall current,
+The servo is 7.4 V and the car's main pack is **4S** (14.8 V nominal, 16.8 V charged), so it
+does not run off the main pack. A separate 2S pack feeds the adapter, sized for stall current,
 which is amps rather than milliamps on a 19 kg servo.
+
+(This section said 3S until 2026-08-30. That is the same wrong number that was set in VESC
+Tool and destroyed a pack by cutting off at 2.25 V per cell. Every team on this course got
+4S. Corrected here so the document cannot repeat the mistake.)
 
 ## LiDAR: role and mounting (decided 2026-08-26)
 

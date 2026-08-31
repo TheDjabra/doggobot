@@ -120,3 +120,90 @@ EOF'
 ```
 
 Verify with `docker exec Doggobot getent hosts rasputin`.
+
+## Camera pan axis
+
+### Bench check, no ROS and no car
+
+The firmware talks a line protocol, so the axis can be exercised from any machine it is
+plugged into:
+
+```bash
+cd ~/projects/doggobot/firmware
+arduino-cli compile --fqbn esp32:esp32:esp32s3 -u -p /dev/ttyUSB0 esp32_pan
+cd .. && python3 tools/pan_console.py --selftest
+```
+
+The self-test commands 0, +/-30 and +/-60 degrees and reports **measured against commanded**
+for each, plus bus errors and supply voltage. A pass means the servo went where it was told,
+which is a different and much more useful claim than the servo moved.
+
+If the scan finds nothing, work the list in this order, because it is ordered by how often
+each one is actually the cause:
+
+1. TX and RX crossed. This was the fault the first time. Adapter TX to GPIO 17, adapter RX to
+   GPIO 16.
+2. Jumper not on **A (UART-SERVO)**.
+3. Servo not powered, or the adapter's own power input empty. The servo does not draw power
+   from the signal wires.
+4. No common ground between the adapter and the ESP32.
+
+### Putting it on the Pi
+
+Install the udev rule on the **host** first, so a stable name exists before anything asks for
+it. The Pi already has the VESC and the LiDAR on `/dev/ttyUSB*` and kernel numbering follows
+probe order, which is not a promise:
+
+```bash
+sudo cp deploy/99-doggobot-serial.rules /etc/udev/rules.d/
+sudo udevadm control --reload && sudo udevadm trigger
+ls -l /dev/doggobot-pan
+```
+
+**A container cannot be given a device it was not started with.** Adding the ESP32 means
+recreating the container, and a recreate discards everything patched inside it. Create it the
+usual way, with the pan device added to the device list:
+
+```
+--device /dev/doggobot-pan
+```
+
+Then re-apply this project's patches, which is what would otherwise be rediscovered at the
+worst possible moment:
+
+```bash
+./tools/setup_container.sh          # or --check to report without changing
+```
+
+That restores `/etc/resolv.conf` for tailnet DNS, re-appends `ROS_DOMAIN_ID=66` after the
+class `bashrc_docker.sh` has exported 96, and installs `pyserial`.
+
+### Calibrating the mount
+
+Two numbers depend on the bracket and cannot be guessed. Both live in `config/pan.yaml`:
+
+```bash
+ros2 launch doggobot pan.launch.py
+ros2 topic pub -1 /pan_cmd std_msgs/msg/Float32 '{data: 30.0}'
+```
+
+- `invert` : if `+30` swings the camera left, set it true.
+- `centre_offset_deg` : trim so `0` looks straight down the chassis centreline.
+
+Then measure `half_fov_deg` in `config/follow.yaml`. It is **not** the camera's spec-sheet
+HFOV, because `x` is normalised across the detector's letterboxed input. Stand at a known
+bearing, read `x` from `/target_state`, and divide the angle by `x`. Getting this wrong scales
+the whole outer loop.
+
+Finally measure `capture_lag_s`: the age of a frame when `follow_node` sees it. At a 120 deg/s
+slew every 100 ms of it is 12 degrees of error injected into the bearing.
+
+### Checking the loop without a car
+
+```bash
+python3 tools/sim_cascade.py            # 7 gated checks, no ROS required
+python3 tools/sim_cascade.py --plot     # ascii trace of bearing over time
+```
+
+Two of those checks deliberately invert a sign and require the run to diverge, so the suite is
+known to be capable of seeing the failure it rules out.
