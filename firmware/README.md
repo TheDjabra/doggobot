@@ -19,11 +19,20 @@ same adapter. The port is the UART pin mapping and nothing else.
 
 ## Wiring
 
-| adapter | ESP32 |
-|---|---|
-| GND | GND — **mandatory**, or the UART floats |
-| RX | GPIO 17 (TX) |
-| TX | GPIO 16 (RX) |
+| adapter | ESP32-S3 | |
+|---|---|---|
+| GND | GND | **mandatory**, or the UART floats |
+| TX | GPIO **17** | verified working 2026-08-30 |
+| RX | GPIO **16** | |
+
+**Bring-up result (2026-08-30)**: `found ID 1  pos=1  volts=7.8`, then `center 1` drove it to
+2048 with position, speed and load reported back throughout. Whole chain proven on the bench
+before anything was mounted: ESP32-S3 -> UART @1 Mbps -> adapter -> STS3215, with encoder
+feedback returning. Powered from a 2S pack reading 7.8 V at the adapter.
+
+The first attempt found nothing on the bus, and the cause was exactly the first suspect in the
+sketch's own error message: TX and RX crossed. Swapping them in firmware found the servo
+immediately.
 
 Board mode jumper on **UART**, not USB. Servo power **7.4 V into the adapter**, never from the
 ESP32; only the grounds are shared. A 1000 µF capacitor across the servo rail absorbs stall

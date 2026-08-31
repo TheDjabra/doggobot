@@ -8,8 +8,11 @@
 //
 // WIRING (adapter <-> ESP32):
 //   adapter GND -> ESP32 GND        common ground, MANDATORY or the UART floats
-//   adapter RX  -> ESP32 TX_PIN (17)
-//   adapter TX  -> ESP32 RX_PIN (16)
+//   adapter TX  -> ESP32 GPIO 17   VERIFIED WORKING 2026-08-30
+//   adapter RX  -> ESP32 GPIO 16
+//   (i.e. RX_PIN = 17, TX_PIN = 16 below. The naming reads backwards because
+//   RX_PIN is the pin the ESP32 RECEIVES on, which is wired to the adapter's TX.
+//   Getting this the other way round produces a silent bus and nothing else.)
 //   Board mode jumper on UART (not USB).
 //   Servo power 7.4 V into the adapter's DC jack or screw terminal, NEVER from
 //   the ESP32. Only the grounds are shared between the two power domains.
@@ -54,8 +57,8 @@
 const char* FW_VERSION = "0.1.0-esp32";
 
 // ESP32 UART pins for the servo bus. See WHY THESE PINS above.
-const int RX_PIN = 16;
-const int TX_PIN = 17;
+const int RX_PIN = 17;
+const int TX_PIN = 16;
 const uint32_t BUS_BAUD = 1000000;   // STS3215 factory default
 
 // Gentle defaults for bring-up: nothing is mounted yet, so crawl.
