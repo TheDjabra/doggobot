@@ -85,6 +85,11 @@ body:not(.armed) main{opacity:.4;pointer-events:none}
   animation:guardpulse 1.6s ease-in-out infinite;
 }
 @keyframes guardpulse{50%{background:rgb(255 176 0 / .04)}}
+
+/* Pan presets: seven small targets on one line, so a look is one tap rather
+   than a drag. The slider stays for the angles in between. */
+.panrow{gap:4px}
+.panrow .btn{flex:1 1 0;min-width:0;padding:8px 2px;font-size:11px;letter-spacing:0}
 #safety small{
   display:block; font-family:var(--font-mono); font-size:10px;
   letter-spacing:var(--track); text-transform:none; opacity:.75; margin-top:3px;
@@ -270,10 +275,14 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
         <label class="slider">Camera <span id="panval">0&deg;</span>
           <input type="range" id="pan" min="-70" max="70" step="1" value="0">
         </label>
-        <div class="row">
-          <button class="btn" id="panl">Look L</button>
-          <button class="btn" id="panc">Centre</button>
-          <button class="btn" id="panr">Look R</button>
+        <div class="row panrow">
+          <button class="btn panpre" data-deg="-60">60&deg;L</button>
+          <button class="btn panpre" data-deg="-45">45&deg;L</button>
+          <button class="btn panpre" data-deg="-30">30&deg;L</button>
+          <button class="btn panpre" data-deg="0">Fwd</button>
+          <button class="btn panpre" data-deg="30">30&deg;R</button>
+          <button class="btn panpre" data-deg="45">45&deg;R</button>
+          <button class="btn panpre" data-deg="60">60&deg;R</button>
         </div>
         <div class="line" style="font-size:11px;letter-spacing:var(--track);
              color:var(--c-ink-faint);display:flex;justify-content:space-between">
@@ -480,9 +489,8 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     send({ type: 'pan', deg: deg });
   }
   panSlider.addEventListener('input', () => setPan(parseInt(panSlider.value, 10), false));
-  $('panl').addEventListener('click', () => setPan(-45, true));
-  $('panc').addEventListener('click', () => setPan(0, true));
-  $('panr').addEventListener('click', () => setPan(45, true));
+  document.querySelectorAll('.panpre').forEach(b =>
+    b.addEventListener('click', () => setPan(parseInt(b.dataset.deg, 10), true)));
 
   // ── teleop is a STREAM ───────────────────────────────────────────────
   // The page repeats the current input 20x a second. It never sends "go until

@@ -34,7 +34,7 @@ from std_msgs.msg import String
 
 ACTIONS = ['forward', 'reverse', 'circle_left', 'circle_right',
            'turn_around', 'three_point', 'figure_eight', 'wait', 'stop',
-           'follow']
+           'follow', 'look_left', 'look_right', 'look_forward']
 COLORS = ['green', 'red']
 
 # Constrains decoding, so the model cannot invent an action or a colour.
@@ -77,6 +77,24 @@ only way this car changes direction is by driving in a circle.
   wait          hold still
   stop          stop and cancel everything
   follow        follow the nearest person
+
+THE CAMERA IS A SEPARATE THING FROM THE WHEELS. It sits on a servo and can
+turn to look sideways while the car keeps doing whatever it was doing.
+
+  look_left     turn the CAMERA to the left. The car does not move.
+  look_right    turn the CAMERA to the right. The car does not move.
+  look_forward  point the camera straight ahead again
+
+LOOKING IS NOT DRIVING. "look right" moves only the camera; "go right" drives
+the car in a circle. Choose by what the speaker wants to happen: if they said
+look, watch, point the camera, face, or turn your head, it is a look_* action.
+If they want the car to travel, it is circle_left / circle_right.
+
+A look takes `degrees`, which is how far from straight ahead to point, never a
+negative number: the side is already carried by the action name. "look 45
+degrees right" is look_right with degrees=45. Left it out? Leave `degrees` out
+too and the car uses its default angle. The camera cannot exceed 90 degrees
+either side, so clamp anything larger to 90.
 
 DIRECTION WORDS MEAN CIRCLES. "go right", "turn right", "head right", "spin
 right", "veer right", "to the right" all mean circle_right. The same for left
@@ -134,6 +152,18 @@ EXAMPLES
 "go until you see the green thing then stop"
 -> {"understood": true, "steps": [{"action":"forward","until_color":"green"},
     {"action":"stop"}]}
+
+"look 45 degrees to the right"
+-> {"understood": true, "steps": [{"action":"look_right","degrees":45}]}
+
+"look left then look right then look forward again"
+-> {"understood": true, "steps": [{"action":"look_left"},
+    {"action":"look_right"}, {"action":"look_forward"}]}
+
+"drive forward for 3 seconds while looking 30 degrees left"
+-> two steps, the look first so the camera is already pointing:
+   {"understood": true, "steps": [{"action":"look_left","degrees":30},
+    {"action":"forward","seconds":3}]}
 
 "go forward then turn around and come back"
 -> {"understood": true, "steps": [{"action":"forward"},

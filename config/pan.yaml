@@ -5,7 +5,9 @@ pan_node:
     #   sudo cp deploy/99-doggobot-serial.rules /etc/udev/rules.d/
     #   sudo udevadm control --reload && sudo udevadm trigger
     port: /dev/doggobot-pan
-    fallback_port: /dev/ttyUSB1     # only if the rule is not installed yet
+    # The board fitted to the car has native USB, so it enumerates as ttyACM,
+    # not ttyUSB. Used only if the udev rule is not installed yet.
+    fallback_port: /dev/ttyACM1
     baud: 115200
 
     # Which way the servo faces is a property of the mount, not the code.
