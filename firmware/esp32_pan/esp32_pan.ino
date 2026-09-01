@@ -17,15 +17,21 @@
 // PROTOCOL, newline-terminated ASCII both ways.
 //
 //   host -> esp32
-//     p <deg>     target angle, signed degrees, 0 = centre
+//     p <deg>     target angle, signed degrees, 0 = straight ahead
 //     v <deg/s>   slew speed limit
 //     e <0|1>     torque enable / disable (0 lets you move it by hand)
+//     o <deg>     where mechanical straight-ahead sits, in servo degrees
 //     c           centre, same as `p 0`
 //     ?           force one status line immediately
 //     i           identity banner
 //
+// BOOT STATE: torque OFF, no position commanded. The firmware has no idea how
+// the horn is clocked relative to the bracket, so commanding an angle at power
+// up would drive the axis to wherever the encoder happens to call centre and
+// take the camera cable with it. It powers up limp and waits to be told.
+//
 //   esp32 -> host, streamed at STATUS_HZ
-//     s <deg> <target> <moving> <load> <volts> <temp> <errs>
+//     s <deg> <target> <moving> <load> <volts> <temp> <errs> <torque>
 //
 //   Lines beginning '#' are human-readable and carry no state.
 //
@@ -68,6 +74,11 @@ const float    STATUS_HZ  = 50.0f;
 
 SMS_STS  st;
 float    targetDeg  = 0.0f;
+// Mechanical straight-ahead, in servo degrees from encoder centre. Set with `o`
+// once the horn is fitted. Every angle on the wire is measured from HERE, which
+// is what makes the clamp below meaningful: a limit of +/-80 is only a real
+// protection if it is 80 degrees from where the camera actually points forward.
+float    offsetDeg  = 0.0f;
 uint16_t slewCounts = 2400;             // ~210 deg/s, brisk but not violent
 long     errs       = 0;
 bool     torque     = true;
@@ -86,8 +97,12 @@ float clampDeg(float d) {
   return d;
 }
 
-int degToCounts(float deg) { return CENTRE + (int)lroundf(deg * CPD); }
-float countsToDeg(int c)   { return (c - CENTRE) / CPD; }
+int degToCounts(float deg) {
+  return CENTRE + (int)lroundf((deg + offsetDeg) * CPD);
+}
+float countsToDeg(int c) {
+  return (c - CENTRE) / CPD - offsetDeg;
+}
 
 void applyTarget() {
   st.WritePosEx(PAN_ID, degToCounts(targetDeg), slewCounts, ACCEL);
@@ -97,7 +112,8 @@ void banner() {
   Serial.println("# esp32_pan 1.0  doggobot camera pan axis");
   Serial.printf("# servo id %d, limit +/-%.0f deg, bus %lu baud\n",
                 PAN_ID, LIMIT_DEG, (unsigned long)BUS_BAUD);
-  Serial.println("# p <deg> | v <deg/s> | e <0|1> | c | ? | i");
+  Serial.printf("# offset %.2f deg, torque %s\n", offsetDeg, torque ? "on" : "off");
+  Serial.println("# p <deg> | v <deg/s> | e <0|1> | o <deg> | c | ? | i");
 }
 
 void status() {
@@ -111,10 +127,10 @@ void status() {
   int   mov   = st.ReadMove(PAN_ID);
   int   volt  = st.ReadVoltage(PAN_ID);
   int   temp  = st.ReadTemper(PAN_ID);
-  Serial.printf("s %.2f %.2f %d %d %.1f %d %ld\n",
+  Serial.printf("s %.2f %.2f %d %d %.1f %d %ld %d\n",
                 countsToDeg(pos), targetDeg, mov < 0 ? 0 : mov,
                 load, volt < 0 ? 0.0f : volt / 10.0f,
-                temp < 0 ? 0 : temp, errs);
+                temp < 0 ? 0 : temp, errs, torque ? 1 : 0);
 }
 
 // ---- command handling ------------------------------------------------------
@@ -149,9 +165,26 @@ void handle(String s) {
 
     case 'e':
       torque = (arg.toInt() != 0);
-      st.EnableTorque(PAN_ID, torque ? 1 : 0);
-      Serial.printf("# torque %s\n", torque ? "on" : "off");
+      if (torque) {
+        // Hold where it currently IS, not where targetDeg happens to say.
+        // Engaging torque must never itself be a movement command: the whole
+        // point of coming up limp is that nobody knows where the axis is yet.
+        int pos = st.ReadPos(PAN_ID);
+        if (pos >= 0) targetDeg = clampDeg(countsToDeg(pos));
+        st.EnableTorque(PAN_ID, 1);
+        applyTarget();
+      } else {
+        st.EnableTorque(PAN_ID, 0);
+      }
+      Serial.printf("# torque %s at %.2f deg\n", torque ? "on" : "off", targetDeg);
       break;
+
+    case 'o': {
+      float was = offsetDeg;
+      offsetDeg = arg.toFloat();
+      Serial.printf("# offset %.2f -> %.2f deg\n", was, offsetDeg);
+      break;
+    }
 
     case '?':
       status();
@@ -175,6 +208,7 @@ void setup() {
   st.pSerial = &Serial1;
   delay(300);
 
+  torque = false;                 // come up limp, see BOOT STATE above
   banner();
   if (st.Ping(PAN_ID) == -1) {
     // Say so and carry on. The host can then report "pan axis missing" instead
@@ -187,8 +221,12 @@ void setup() {
     Serial.printf("# servo %d present\n", PAN_ID);
   }
 
-  st.EnableTorque(PAN_ID, 1);
-  applyTarget();
+  // Deliberately NOT EnableTorque(1) and NOT applyTarget(). Release the axis so
+  // the horn can be fitted and turned to straight ahead by hand, then read the
+  // angle off the status stream and hand it back with `o`.
+  st.EnableTorque(PAN_ID, 0);
+  Serial.println("# limp: torque off, no target. Fit the horn, point it "
+                 "forward, then send o <deg> and e 1");
 }
 
 void loop() {

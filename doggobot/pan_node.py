@@ -64,6 +64,9 @@ class PanNode(Node):
         self.declare_parameter('limit_deg', 75.0)
         self.declare_parameter('centre_offset_deg', 0.0)
         self.declare_parameter('slew_deg_s', 200.0)
+        # Leave false while bringing up a new mount: the axis then stays limp so
+        # the horn can be turned by hand to find straight ahead.
+        self.declare_parameter('engage_on_start', True)
         self.declare_parameter('publish_hz', 20.0)
         self.declare_parameter('stale_s', 0.5)
         self.declare_parameter('min_command_delta_deg', 0.4)
@@ -85,6 +88,7 @@ class PanNode(Node):
                 f"{PAN_CEILING_DEG:g}")
         self.offset = float(g('centre_offset_deg').value)
         self.slew = float(g('slew_deg_s').value)
+        self.engage = bool(g('engage_on_start').value)
         self.stale_s = float(g('stale_s').value)
         self.min_delta = float(g('min_command_delta_deg').value)
         self.reconnect_s = float(g('reconnect_s').value)
@@ -126,8 +130,16 @@ class PanNode(Node):
                 time.sleep(2.0)          # the ESP32 reboots when DTR asserts
                 s.reset_input_buffer()
                 self.get_logger().info(f'pan axis connected on {path}')
-                # Push our slew limit; firmware defaults are for the bench.
+                # Hand the firmware its working configuration, in this order.
+                # The offset goes FIRST so that the clamp the firmware applies
+                # is measured from mechanical straight ahead rather than from
+                # wherever the encoder happens to call centre, and the torque
+                # goes last because the firmware boots limp on purpose and
+                # engaging it holds the current angle rather than moving.
+                s.write(f'o {self.offset}\n'.encode())
                 s.write(f'v {self.slew}\n'.encode())
+                if self.engage:
+                    s.write(b'e 1\n')
                 return s
             except Exception as e:                           # noqa: BLE001
                 self.get_logger().warn(f'{path}: {e}')
@@ -186,13 +198,18 @@ class PanNode(Node):
     # firmware speaks. The offset and inversion live on this boundary and nowhere
     # else, so there is exactly one place to look when the camera aims wrong.
 
+    # The OFFSET now lives in the firmware, handed over once at connect. That is
+    # deliberate: the firmware's travel clamp is the last line of defence for the
+    # camera cable, and a clamp is only meaningful in the frame where straight
+    # ahead is actually straight ahead. Leaving the offset up here would have
+    # meant the firmware limiting +/-80 degrees about the wrong point.
+    # Only the direction flip stays on this side.
+
     def _to_servo(self, chassis_deg):
-        d = -chassis_deg if self.invert else chassis_deg
-        return d + self.offset
+        return -chassis_deg if self.invert else chassis_deg
 
     def _from_servo(self, servo_deg):
-        d = servo_deg - self.offset
-        return -d if self.invert else d
+        return -servo_deg if self.invert else servo_deg
 
     # -- command --------------------------------------------------------------
 

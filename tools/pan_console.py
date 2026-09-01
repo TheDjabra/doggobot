@@ -110,10 +110,42 @@ def selftest(pan):
     return 0 if ok else 1
 
 
+def watch(pan, seconds):
+    """Stream the angle while the axis is limp, for finding straight ahead.
+
+    The firmware boots with torque off precisely so this is possible: fit the
+    horn, turn the camera by hand until it points down the chassis centreline,
+    and read the number off. That number is `centre_offset_deg` in pan.yaml.
+    """
+    pan.send('e 0')
+    pan.pump(0.6, echo=True)
+    print(f'\ntorque OFF, axis is free. Point the camera straight ahead and '
+          f'hold it there.\nreading for {seconds:.0f}s\n')
+    end = time.time() + seconds
+    last = None
+    while time.time() < end:
+        pan.pump(0.25)
+        if pan.deg is not None and (last is None or abs(pan.deg - last) > 0.3):
+            last = pan.deg
+            bar = int(max(-45, min(45, pan.deg)) / 3) + 15
+            print(f'  {pan.deg:+7.2f} deg  [{"." * bar}#{"." * (30 - bar)}]  '
+                  f'{pan.volts:.1f} V')
+    if pan.deg is None:
+        print('no position reported: servo unpowered, or the bus is silent.')
+        return 1
+    print(f'\nresting at {pan.deg:+.2f} deg.')
+    print(f'If the camera is pointing straight ahead now, put this in '
+          f'config/pan.yaml:\n\n    centre_offset_deg: {pan.deg:.2f}\n')
+    print('Nothing has been written anywhere. The axis is still limp.')
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', default='/dev/ttyUSB0')
     ap.add_argument('--selftest', action='store_true')
+    ap.add_argument('--watch', type=float, metavar='SECONDS',
+                    help='hold the axis limp and stream the angle, to find zero')
     ap.add_argument('cmds', nargs='*')
     a = ap.parse_args()
 
@@ -122,6 +154,9 @@ def main():
     except serial.SerialException as e:
         print(f'cannot open {a.port}: {e}')
         return 2
+
+    if a.watch:
+        return watch(pan, a.watch)
 
     if a.selftest:
         return selftest(pan)
