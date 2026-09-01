@@ -76,6 +76,26 @@ class SafetyNode(Node):
         # a moment before the car actually stops.
         self.declare_parameter('intent_timeout_s', 0.7)
 
+        # HYSTERESIS. A single threshold on a noisy range estimate chatters:
+        # an object sitting near the stop distance dithers across it and the
+        # guard toggles at the tick rate, chopping a 3 second command into
+        # fragments. Measured on the car 2026-09-01: 16 stop/clear cycles in one
+        # minute. So a sector that is ALREADY blocking must clear by an extra
+        # margin before it is believed, and a block is held for a minimum time.
+        #
+        # Both of these only ever DELAY a release. The distance at which the
+        # guard stops the car is unchanged, so this cannot make it intervene
+        # later than before, only let go later. That is the safe direction.
+        self.declare_parameter('release_margin_m', 0.07)
+        self.declare_parameter('min_block_s', 0.4)
+
+        # Returns closer than this are discarded as the vehicle seeing itself.
+        # Default 0.02 keeps the previous behaviour. Raise it to about 0.10 once
+        # you know what is inside the car's own envelope: on this chassis the
+        # LiDAR sits roughly 0.1 m from the bodywork, so anything nearer than
+        # that is a cable or a bracket, not an obstacle. Do NOT raise it blind.
+        self.declare_parameter('min_range_m', 0.02)
+
         g = self.get_parameter
         self.offset = math.radians(float(g('forward_offset_deg').value))
         self.front_hw = math.radians(float(g('front_halfwidth_deg').value))
@@ -86,11 +106,15 @@ class SafetyNode(Node):
         self.min_points = int(g('min_points').value)
         self.hz = float(g('publish_hz').value)
         self.intent_timeout = float(g('intent_timeout_s').value)
+        self.release_margin = float(g('release_margin_m').value)
+        self.min_block_s = float(g('min_block_s').value)
+        self.min_range = float(g('min_range_m').value)
 
         self.sectors = {'front': 99.0, 'rear': 99.0, 'left': 99.0, 'right': 99.0}
         self.intent = 0.0            # throttle the car is TRYING to apply
         self.intent_at = 0.0
         self.blocked = None
+        self.blocked_since = 0.0
 
         self.cmd_pub = self.create_publisher(Twist, 'safety_cmd', 10)
         self.state_pub = self.create_publisher(String, 'obstacle_state', 10)
@@ -119,7 +143,7 @@ class SafetyNode(Node):
 
     def _on_scan(self, scan):
         near = {'front': [], 'rear': [], 'left': [], 'right': []}
-        rmin = max(scan.range_min, 0.02)
+        rmin = max(scan.range_min, self.min_range)
 
         for i, r in enumerate(scan.ranges):
             if not math.isfinite(r) or r < rmin or r > scan.range_max:
@@ -152,22 +176,36 @@ class SafetyNode(Node):
         if time.time() - self.intent_at > self.intent_timeout:
             return None                      # nothing is trying to move
 
-        if self.intent > 0 and self.sectors['front'] < self.front_stop:
+        if self.intent > 0 and self.sectors['front'] < self._limit('front'):
             return 'front'
-        if self.intent < 0 and self.sectors['rear'] < self.rear_stop:
+        if self.intent < 0 and self.sectors['rear'] < self._limit('rear'):
             return 'rear'
         # Flanks matter whenever moving at all: the car steers as it drives, so a
         # wall alongside becomes a wall ahead a moment later.
         for side in ('left', 'right'):
-            if self.sectors[side] < self.side_stop:
+            if self.sectors[side] < self._limit(side):
                 return side
         return None
+
+    def _limit(self, name):
+        """Stop distance for a sector, widened while that sector is blocking."""
+        base = {'front': self.front_stop,
+                'rear': self.rear_stop}.get(name, self.side_stop)
+        return base + self.release_margin if self.blocked == name else base
 
     def _tick(self):
         hazard = self._hazard()
 
+        # Hold a block briefly even once the sector reads clear. Without this a
+        # single optimistic scan releases the guard for one tick, which the car
+        # feels as a lurch rather than as motion.
+        if self.blocked and hazard is None:
+            if time.time() - self.blocked_since < self.min_block_s:
+                hazard = self.blocked
+
         if hazard != self.blocked:
             if hazard:
+                self.blocked_since = time.time()
                 self.get_logger().warn(
                     f'obstacle {hazard} at {self.sectors[hazard]:.2f} m, stopping')
             else:
