@@ -102,6 +102,11 @@ RULES
 - Repetitions become repeated steps ("twice" = the same step twice).
 - Keep the order the person said things in.
 
+COUNT BEFORE YOU ANSWER. The instructions are separated by "then" and "and".
+Count how many the person gave and return exactly that many steps. Dropping the
+LAST instruction is the most common mistake: check that the final thing they
+said appears as the final step.
+
 EXAMPLES
 "go right for 5 seconds then left for 3 seconds"
 -> {"understood": true, "steps": [{"action":"circle_right","seconds":5},
