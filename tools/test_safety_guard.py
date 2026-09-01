@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Does the LiDAR guard chatter, and does hysteresis fix it without weakening it?
+"""LiDAR guard: chatter, intervention distance, and the override.
 
 Two claims to prove, and the second matters more than the first:
 
@@ -13,6 +13,7 @@ Two claims to prove, and the second matters more than the first:
 
 Run: python3 tools/test_safety_hysteresis.py
 """
+import json
 import math
 import os
 import random
@@ -105,4 +106,59 @@ same = abs(stops.get('without', -1) - stops.get('with', -2)) < 1e-9
 print()
 print(f'  [{"PASS" if chatter_ok else "FAIL"}] chatter cut by at least 4x')
 print(f'  [{"PASS" if same else "FAIL"}] intervention distance unchanged')
-sys.exit(0 if (chatter_ok and same) else 1)
+
+# ---------------------------------------------------------------------------
+# The override. On a stand the guard measures the bench and vetoes everything.
+# ---------------------------------------------------------------------------
+
+print('\n  override (guard off) behaviour')
+
+moving = rosstub.Twist(); moving.linear.x = 0.3
+BLOCKED = 0.10          # well inside the 0.25 m side threshold
+
+def step(n, enabled=None):
+    if enabled is not None:
+        n._on_enable(rosstub.Data(enabled))
+    n.sent.clear()
+    n._on_intent(moving); n.intent_at = time.time()
+    n._on_scan(make_scan(BLOCKED))
+    n._tick()
+    return n
+
+g = build()
+# positive control FIRST: if the veto never fires, "no veto when off" is
+# worthless as evidence.
+step(g)
+vetoed_on = len(g.sent.get('safety_cmd', [])) > 0
+default_on = g.enabled is True
+
+step(g, enabled=False)
+vetoed_off = len(g.sent.get('safety_cmd', [])) > 0
+state_off = json.loads(g.sent['obstacle_state'][-1].data)
+
+step(g, enabled=True)
+vetoed_again = len(g.sent.get('safety_cmd', [])) > 0
+
+print(f'    defaults to enabled            : {default_on}')
+print(f'    obstacle at {BLOCKED} m, guard on  : veto published = {vetoed_on}')
+print(f'    same obstacle, guard overridden: veto published = {vetoed_off}')
+print(f'    re-enabled                     : veto published = {vetoed_again}')
+print(f'    while overridden it still reports would_block = '
+      f'{state_off.get("would_block")!r}, blocked = {state_off.get("blocked")!r}')
+
+checks = [
+    ('defaults to guard ON', default_on),
+    ('vetoes when on (positive control)', vetoed_on),
+    ('does NOT veto when overridden', not vetoed_off),
+    ('vetoes again once re-enabled', vetoed_again),
+    ('still reports what it would have stopped for',
+     state_off.get('would_block') == 'right'),
+    ('reports blocked=None while overridden', state_off.get('blocked') is None),
+    ('reports enabled=False', state_off.get('enabled') is False),
+]
+for name, ok in checks:
+    print(f'  [{"PASS" if ok else "FAIL"}] {name}')
+
+allok = chatter_ok and same and all(o for _, o in checks)
+print(f'\n{"ALL PASS" if allok else "FAILURES ABOVE"}')
+sys.exit(0 if allok else 1)

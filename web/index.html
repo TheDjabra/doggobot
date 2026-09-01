@@ -71,6 +71,25 @@ body:not(.armed) main{opacity:.4;pointer-events:none}
 }
 #kill.engaged{background:var(--c-alert);color:#000}
 
+/* LiDAR guard override. Deliberately quiet when the guard is ON and loud when
+   it is not: the dangerous state is the one that has to be impossible to
+   overlook, and a car whose obstacle guard is off should never look normal. */
+#safety{
+  flex:0 0 auto; margin:8px 14px 0; padding:10px 8px; border:1px solid var(--c-ink-faint);
+  background:transparent; color:var(--c-ink-dim); font-family:var(--font-display);
+  font-size:15px; letter-spacing:var(--track-wide); text-transform:uppercase;
+  text-align:center; cursor:pointer;
+}
+#safety.off{
+  border-color:var(--c-accent); background:rgb(255 176 0 / .18); color:var(--c-accent);
+  animation:guardpulse 1.6s ease-in-out infinite;
+}
+@keyframes guardpulse{50%{background:rgb(255 176 0 / .04)}}
+#safety small{
+  display:block; font-family:var(--font-mono); font-size:10px;
+  letter-spacing:var(--track); text-transform:none; opacity:.75; margin-top:3px;
+}
+
 /* ── tabs ───────────────────────────────────────────────────────────── */
 nav{display:flex;gap:0;margin:12px 14px 0;border:var(--hairline-dim);flex:0 0 auto}
 nav button{
@@ -190,6 +209,8 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
   header{padding:6px 12px}
   .mark{font-size:16px}
   #kill{margin:6px 12px 0;padding:9px;font-size:18px}
+  #safety{margin:5px 12px 0;padding:6px;font-size:13px}
+  #safety small{font-size:9px;margin-top:1px}
   nav{margin:6px 12px 0}
   nav button{padding:6px;font-size:13px}
   main{padding:10px 12px;overflow:hidden}
@@ -221,6 +242,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
 
 <button id="arm">DISARMED - TAP TO ARM</button>
 <button id="kill">KILL</button>
+<button id="safety">Lidar Guard On<small id="safetynote">&nbsp;</small></button>
 
 <nav>
   <button id="tab-drive" aria-selected="true">Drive</button>
@@ -407,6 +429,7 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
           b.className = 'on';
         } else { b.textContent = 'offline'; b.className = 'off'; }
       }
+      else if (m.type === 'obstacle') paintGuard(m);
       else if (m.type === 'arbiter') paintArm(!!m.armed);
       else if (m.type === 'condition') {
         const d = $('cdet');
@@ -425,6 +448,27 @@ footer{flex:0 0 auto;padding:8px 14px;border-top:var(--hairline-dim);
     $('link').textContent = linked ? 'linked' : 'no link';
   }
   setInterval(() => send({ type: 'ping', t: performance.now() }), 1000);
+
+  /* LiDAR guard override, for bench and stand work where the guard is measuring
+     the furniture. The CAR is authoritative: this renders whatever the guard
+     reports about itself, never what we last asked for, so a request that was
+     dropped shows up as the button simply not changing. It also keeps showing
+     what the guard can see while overridden, because the useful question on a
+     stand is not "is it off" but "what would it have stopped for". */
+  let guardOn = true;
+  $('safety').addEventListener('click',
+    () => send({ type: 'safety', enabled: !guardOn }));
+
+  function paintGuard(o) {
+    guardOn = o.enabled !== false;
+    const b = $('safety');
+    b.classList.toggle('off', !guardOn);
+    b.firstChild.nodeValue = guardOn ? 'Lidar Guard On' : 'Lidar Guard Overridden';
+    const w = o.blocked || o.would_block;
+    $('safetynote').textContent = guardOn
+      ? (w ? `stopping: ${w}` : 'clear')
+      : (w ? `would stop: ${w}` : 'clear');
+  }
 
   /* Camera pan. Sent as a REQUEST on /pan_manual, not a servo command: while a
      target is locked the follow cascade owns the camera and this is ignored,

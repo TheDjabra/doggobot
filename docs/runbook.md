@@ -207,3 +207,39 @@ python3 tools/sim_cascade.py --plot     # ascii trace of bearing over time
 
 Two of those checks deliberately invert a sign and require the run to diverge, so the suite is
 known to be capable of seeing the failure it rules out.
+
+## Overriding the LiDAR guard for bench and stand work
+
+On a stand the wheels are off the ground and the guard is measuring the bench, a chair
+leg or your own foot. Those are real obstacles and it is right to stop for them, but
+they are not relevant to what you are testing, and the result is that every command is
+vetoed a moment after it starts.
+
+The phone has a **Lidar Guard** button below KILL. Tap it to override.
+
+- It defaults to **on**, and comes back on after a restart. That is deliberate.
+- It **re-enables itself** when the last client disconnects, at the same time as the
+  disarm. An override is something you hold for a specific test, not something you set.
+- While overridden the button is amber and pulsing, and it keeps reporting what the
+  guard can still see, for example `would stop: right`. The guard has not stopped
+  working; only its veto is withheld.
+
+If the guard is tripping when nothing is actually near the car, do not reach for the
+override first. Check what it is seeing:
+
+```bash
+docker exec Doggobot bash -c "source /home/projects/ros2_ws/src/doggobot/tools/env.sh \
+  && python3 /home/projects/ros2_ws/src/doggobot/tools/lidar_sectors.py 15"
+```
+
+A return at a **fixed bearing and a very short range** is the car seeing part of itself,
+usually a cable or a bracket that has moved into the scan plane. Find it and move it.
+Only once you know what is inside the envelope should you raise `min_range_m` in
+`config/safety.yaml` from 0.02 to about 0.10, and that number is the difference between
+ignoring your own wiring and ignoring somebody's foot.
+
+Checking the guard's logic without a car or a LiDAR:
+
+```bash
+python3 tools/test_safety_guard.py
+```

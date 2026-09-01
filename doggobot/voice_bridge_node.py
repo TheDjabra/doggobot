@@ -86,6 +86,9 @@ class BridgeNode(Node):
         # phone is just another claimant and gets the same treatment as a spoken
         # "look left" rather than a private line to the servo.
         self.pan_pub = self.create_publisher(Float32, 'pan_manual', 10)
+        # The LiDAR guard override. Latched true on every disconnect, see
+        # _disarm_now: an override is a thing you hold, not a thing you set.
+        self.safety_pub = self.create_publisher(Bool, 'safety_enabled', 10)
 
         # Latest perception state, pushed to the phone so the operator can see
         # WHAT the car is following rather than inferring it from behaviour.
@@ -99,6 +102,10 @@ class BridgeNode(Node):
         self.behavior = {'active': None}
         self.create_subscription(String, 'behavior_state', self._on_behavior, 10)
         self.create_subscription(String, 'pan_state', self._on_pan, 10)
+
+        self.obstacle = {'enabled': True, 'blocked': None, 'would_block': None,
+                         'sectors': {}}
+        self.create_subscription(String, 'obstacle_state', self._on_obstacle, 10)
 
         self.arbiter = {'armed': False}
         self.create_subscription(String, 'arbiter/status', self._on_arbiter, 10)
@@ -154,6 +161,12 @@ class BridgeNode(Node):
     def _on_frame(self, msg):
         self.frame = bytes(msg.data)
 
+    def _on_obstacle(self, msg):
+        try:
+            self.obstacle = json.loads(msg.data)
+        except Exception:                                    # noqa: BLE001
+            pass
+
     def _on_pan(self, msg):
         try:
             self.pan = json.loads(msg.data)
@@ -199,12 +212,23 @@ class BridgeNode(Node):
         self.cancel_disarm()
         if self.client_count <= 0:
             self.publish_arm(False)
+            # Re-arm the LiDAR guard along with disarming. An override is meant
+            # to be held for a specific test, not left set: the operator who
+            # switched it off has walked away, and the next person to open the
+            # page should not inherit an unguarded car.
+            self.publish_safety(True)
 
     def cancel_disarm(self):
         if self._disarm_timer is not None:
             self._disarm_timer.cancel()
             self.destroy_timer(self._disarm_timer)
             self._disarm_timer = None
+
+    def publish_safety(self, enabled):
+        on = bool(enabled)
+        self.safety_pub.publish(Bool(data=on))
+        self.get_logger().warn(
+            f'LiDAR guard {"enabled" if on else "OVERRIDDEN"} from phone')
 
     def publish_pan(self, deg):
         try:
@@ -322,6 +346,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                         {'type': 'condition', **node.condition}))
                     await sock.send_text(json.dumps(
                         {'type': 'pan', **node.pan}))
+                    await sock.send_text(json.dumps(
+                        {'type': 'obstacle', **node.obstacle}))
                     await asyncio.sleep(0.2)
             except Exception:                                # noqa: BLE001
                 pass
@@ -352,6 +378,8 @@ def build_app(node: BridgeNode) -> FastAPI:
                 elif kind == 'command':
                     node.publish_action(msg.get('action', ''),
                                         msg.get('seconds'))
+                elif kind == 'safety':
+                    node.publish_safety(msg.get('enabled', True))
                 elif kind == 'pan':
                     node.publish_pan(msg.get('deg', 0.0))
                 elif kind == 'lock':

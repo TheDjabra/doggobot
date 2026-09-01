@@ -29,3 +29,27 @@ safety_node:
     # teleop. Slightly longer than the arbiter's own staleness window, so the
     # guard does not release its veto a moment before the car actually stops.
     intent_timeout_s: 0.7
+
+    # --- chatter (added 2026-09-01) ---
+    # A single threshold on a noisy range estimate toggles every tick when an
+    # object sits near it. Measured on the car: 16 stop/clear cycles in one
+    # minute, which a 3 second command feels as being chopped into fragments.
+    # Both of these only ever DELAY a release; the distance at which the guard
+    # intervenes is unchanged, so neither can make it stop later than before.
+    release_margin_m: 0.07    # a blocking sector must clear by this much extra
+    min_block_s: 0.4          # and stay blocked at least this long
+
+    # Returns closer than this are the vehicle seeing itself. 0.02 keeps the
+    # original behaviour. On this chassis the LiDAR sits roughly 0.1 m from the
+    # bodywork, so 0.10 is the value to use once you have physically identified
+    # what is inside the envelope. Do not raise it blind: it is the difference
+    # between ignoring your own cable and ignoring someone's foot.
+    min_range_m: 0.02
+
+    # --- override (added 2026-09-01) ---
+    # The phone's "Lidar Guard" button toggles this at runtime. It is declared
+    # here only to set the value the node BOOTS with, and that value should stay
+    # true: a restart or a crash must never come back with the guard off.
+    enabled_on_start: true
+    disabled_warn_s: 10.0     # how often to say so while overridden
+

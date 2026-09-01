@@ -145,6 +145,35 @@ servo's own angle and the target's offset within the frame, not the offset alone
 the depth reading is a range along the camera's optical axis: forward distance is
 `Z*cos(pan)` and lateral offset is `Z*sin(pan)`. This is implemented as the cascade below.
 
+## The LiDAR guard, and its override
+
+`safety_node` watches the 290 degrees the camera cannot see and vetoes motion by
+publishing a zero Twist that the arbiter ranks above everything but the e-stop. It
+publishes **only while intervening**, because a continuous publisher at that priority
+would veto the whole system permanently.
+
+Two properties are worth knowing, both learned on the car on 2026-09-01.
+
+**A threshold with no hysteresis chatters.** The guard compared range against a fixed
+stop distance at 20 Hz. An object sitting near that distance makes the estimate dither
+across it, so the veto toggled every tick and a 3 second command arrived as a series of
+lurches: 16 stop/clear cycles in one minute. A release margin and a minimum block time
+fix it. Both only delay a *release*, never an intervention, which is what made the
+change safe to ship: measured, the car still stops at exactly 0.25 m.
+
+**The override is an override, not an off switch.** On a stand the guard measures the
+bench, a chair leg, a foot, and vetoes every command for obstacles that are real but
+irrelevant. The phone can turn it off, under three constraints:
+
+- it defaults to ON, and boots ON, so a restart or a crash never silently leaves the
+  car unguarded;
+- it is re-enabled automatically whenever the last client disconnects, alongside the
+  disarm, because the operator who switched it off has walked away;
+- the guard keeps **running** while overridden. It still computes and publishes what it
+  would have stopped for, so the page shows "would stop: right" rather than going blank.
+  Only the veto publish is withheld. The operator can therefore see what they are
+  overriding, which is the difference between an informed override and a blindfold.
+
 ## The follow cascade
 
 The camera and the steering are not two controllers on one error. They are a cascade, and each

@@ -44,7 +44,7 @@ import rclpy
 from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 
 
 class SafetyNode(Node):
@@ -96,6 +96,20 @@ class SafetyNode(Node):
         # that is a cable or a bracket, not an obstacle. Do NOT raise it blind.
         self.declare_parameter('min_range_m', 0.02)
 
+        # OVERRIDE. On a stand the wheels are off the ground and the guard is
+        # measuring the bench, a chair leg, someone's foot: obstacles that are
+        # real but irrelevant, and it vetoes every command because of them.
+        #
+        # Two rules make this an override rather than an off switch:
+        #   * it defaults to ON, so a restart, a crash or a fresh page load can
+        #     never silently leave the car unguarded;
+        #   * the guard keeps RUNNING while overridden. It still computes and
+        #     reports what it would have done, so the phone can show "would be
+        #     stopping" and the operator knows what they are overriding. Only
+        #     the veto is withheld.
+        self.declare_parameter('enabled_on_start', True)
+        self.declare_parameter('disabled_warn_s', 10.0)
+
         g = self.get_parameter
         self.offset = math.radians(float(g('forward_offset_deg').value))
         self.front_hw = math.radians(float(g('front_halfwidth_deg').value))
@@ -115,6 +129,9 @@ class SafetyNode(Node):
         self.intent_at = 0.0
         self.blocked = None
         self.blocked_since = 0.0
+        self.enabled = bool(g('enabled_on_start').value)
+        self.warn_every = float(g('disabled_warn_s').value)
+        self._last_warn = 0.0
 
         self.cmd_pub = self.create_publisher(Twist, 'safety_cmd', 10)
         self.state_pub = self.create_publisher(String, 'obstacle_state', 10)
@@ -122,6 +139,7 @@ class SafetyNode(Node):
         # The arbiter's inputs, not its output. See the circularity note above.
         self.create_subscription(Twist, 'behavior_cmd', self._on_intent, 10)
         self.create_subscription(Twist, 'teleop_cmd', self._on_intent, 10)
+        self.create_subscription(Bool, 'safety_enabled', self._on_enable, 10)
         self.create_timer(1.0 / self.hz, self._tick)
 
         self.get_logger().info(
@@ -193,6 +211,18 @@ class SafetyNode(Node):
                 'rear': self.rear_stop}.get(name, self.side_stop)
         return base + self.release_margin if self.blocked == name else base
 
+    def _on_enable(self, msg):
+        want = bool(msg.data)
+        if want == self.enabled:
+            return
+        self.enabled = want
+        if want:
+            self.get_logger().warn('LiDAR guard RE-ENABLED')
+        else:
+            self.get_logger().warn(
+                'LiDAR guard OVERRIDDEN: obstacles will no longer stop the car')
+        self._last_warn = 0.0
+
     def _tick(self):
         hazard = self._hazard()
 
@@ -206,14 +236,26 @@ class SafetyNode(Node):
         if hazard != self.blocked:
             if hazard:
                 self.blocked_since = time.time()
+                verb = 'stopping' if self.enabled else 'IGNORED (guard overridden)'
                 self.get_logger().warn(
-                    f'obstacle {hazard} at {self.sectors[hazard]:.2f} m, stopping')
+                    f'obstacle {hazard} at {self.sectors[hazard]:.2f} m, {verb}')
             else:
                 self.get_logger().info('clear')
             self.blocked = hazard
 
+        # Say so, repeatedly, for as long as it is off. An override that goes
+        # quiet is one that gets left on by accident.
+        if not self.enabled:
+            now = time.time()
+            if now - self._last_warn >= self.warn_every:
+                self._last_warn = now
+                would = f', would be stopping for {hazard}' if hazard else ''
+                self.get_logger().warn(f'LiDAR guard is OVERRIDDEN{would}')
+
         self.state_pub.publish(String(data=json.dumps({
-            'blocked': hazard,
+            'enabled': self.enabled,
+            'would_block': hazard,
+            'blocked': hazard if self.enabled else None,
             'intent': round(self.intent, 3) if (
                 time.time() - self.intent_at <= self.intent_timeout) else 0.0,
             'sectors': {k: (round(v, 2) if v < 99 else None)
@@ -222,8 +264,9 @@ class SafetyNode(Node):
 
         # Publish ONLY while intervening. The arbiter ranks safety above
         # everything but the e-stop, so a continuous publisher would veto the
-        # whole system permanently.
-        if hazard:
+        # whole system permanently. Withholding this one publish is the entire
+        # mechanism of the override: everything above still ran.
+        if hazard and self.enabled:
             self.cmd_pub.publish(Twist())
 
 
