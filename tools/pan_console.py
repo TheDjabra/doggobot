@@ -89,7 +89,11 @@ def selftest(pan):
     print('  ------   -------   -----   ------')
 
     ok = True
+    # Never beyond +/-90 from centre. The firmware clamps too, but a test that
+    # relies on the thing it is testing to keep it safe is not a safe test.
+    CEILING = 90.0
     for angle in (0.0, 30.0, -30.0, 60.0, -60.0, 0.0):
+        angle = max(-CEILING, min(CEILING, angle))
         reached, err, secs = pan.goto(angle)
         flag = '' if reached else '   <-- MISSED'
         got = f'{pan.deg:+.1f}' if pan.deg is not None else ' nan'

@@ -119,6 +119,11 @@ KEYWORDS = [
 ]
 
 
+# Matches pan_node.PAN_CEILING_DEG and the firmware's ABS_LIMIT_DEG. Duplicated
+# rather than imported so each layer holds the bound on its own.
+PAN_CEILING_DEG = 90.0
+
+
 class BehaviorNode(Node):
 
     def __init__(self):
@@ -449,7 +454,8 @@ class BehaviorNode(Node):
         self.follow_pan_fresh = time.time()
 
     def _on_pan_manual(self, msg):
-        self.pan_manual = max(-90.0, min(90.0, float(msg.data)))
+        self.pan_manual = max(-PAN_CEILING_DEG,
+                              min(PAN_CEILING_DEG, float(msg.data)))
 
     def _on_pan_state(self, msg):
         try:
@@ -657,7 +663,7 @@ class BehaviorNode(Node):
                 self.pan_manual = 0.0
             else:
                 mag = abs(float(degrees)) if degrees is not None else self.pan_look
-                mag = max(0.0, min(90.0, mag))
+                mag = max(0.0, min(PAN_CEILING_DEG, mag))
                 self.pan_manual = mag if action == 'look_right' else -mag
             if self.active == 'follow':
                 self.get_logger().info(

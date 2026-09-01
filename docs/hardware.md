@@ -96,6 +96,24 @@ The USB bridge is an FTDI FT232R, serial **A5069RR4**. That serial is what
 `deploy/99-doggobot-serial.rules` matches on, so the device gets a stable name instead of
 racing the LiDAR and the VESC for `/dev/ttyUSB0`.
 
+### Travel ceiling: +/-90 degrees
+
+The pan axis must never go more than **90 degrees either side of centre**
+(operator instruction, 2026-09-01). It is enforced independently at four layers, so
+no single mistake can widen it:
+
+| Layer | Mechanism |
+|---|---|
+| `esp32_pan` firmware | `ABS_LIMIT_DEG`, plus a `static_assert` that makes widening the working clamp a **build failure** |
+| `pan_node` | clamps `limit_deg` to 90 and logs an error if the config asks for more |
+| `behavior_node` | manual look and the phone slider clamp to the same ceiling |
+| `tools/pan_console.py` | the bench self-test clamps its own angles rather than trusting the firmware |
+
+Working clamps sit well inside it: firmware 80, `pan_node` 75, follow cascade 70.
+The servo's encoder covers a full turn and **the axis free-spins**, which is why the
+ceiling is enforced in firmware rather than only in configuration: a crashed host, a
+bad parameter or a garbled serial line all stop at the same wall.
+
 ### Facts carried over from prior work with these servos
 
 - Board jumper on **A / UART**. Adapter TX to host RX, adapter RX to host TX. If a bus scan

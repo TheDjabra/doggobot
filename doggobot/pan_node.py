@@ -44,6 +44,12 @@ except ImportError:                                          # pragma: no cover
     serial = None
 
 
+# The pan axis may never travel more than this either side of centre.
+# Operator instruction 2026-09-01. Mirrored in firmware (ABS_LIMIT_DEG) so the
+# bound survives a bad parameter, a bad message, and a crashed host alike.
+PAN_CEILING_DEG = 90.0
+
+
 class PanNode(Node):
 
     def __init__(self):
@@ -68,7 +74,15 @@ class PanNode(Node):
         self.fallback_port = g('fallback_port').value
         self.baud = int(g('baud').value)
         self.invert = bool(g('invert').value)
-        self.limit = float(g('limit_deg').value)
+        # +/-90 is a hardware ceiling, not a preference. A config asking for
+        # more is a mistake, so it is clamped and said out loud rather than
+        # quietly honoured. The firmware enforces the same bound independently.
+        self.limit = min(float(g('limit_deg').value), PAN_CEILING_DEG)
+        if float(g('limit_deg').value) > PAN_CEILING_DEG:
+            self.get_logger().error(
+                f"limit_deg {g('limit_deg').value} exceeds the "
+                f"{PAN_CEILING_DEG:g} degree travel ceiling; using "
+                f"{PAN_CEILING_DEG:g}")
         self.offset = float(g('centre_offset_deg').value)
         self.slew = float(g('slew_deg_s').value)
         self.stale_s = float(g('stale_s').value)

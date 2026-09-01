@@ -45,7 +45,15 @@ const uint8_t  PAN_ID    = 1;
 
 const int   CENTRE    = 2048;           // encoder counts, 4096 = one turn
 const float CPD       = 4096.0f / 360.0f;   // counts per degree
-const float LIMIT_DEG = 80.0f;          // hard clamp, both directions
+// TRAVEL CEILING. The axis may never go beyond 90 degrees either side of
+// centre. Operator instruction, 2026-09-01. This is not a tuning value: the
+// working clamp below may be tightened, never widened past it, and the
+// static_assert makes an attempt to widen it a build failure rather than a
+// discovery made by watching the camera cable wind up.
+constexpr float ABS_LIMIT_DEG = 90.0f;
+constexpr float LIMIT_DEG     = 80.0f;      // working clamp, inside the ceiling
+static_assert(LIMIT_DEG <= ABS_LIMIT_DEG,
+              "pan working clamp exceeds the +/-90 degree travel ceiling");
 
 // A hard clamp lives here as well as in pan_node because this is the layer that
 // cannot be talked out of it. A bad angle from a ROS bug, a fat-fingered manual
@@ -69,8 +77,12 @@ String   line;
 // ---- helpers ---------------------------------------------------------------
 
 float clampDeg(float d) {
-  if (d >  LIMIT_DEG) return  LIMIT_DEG;
-  if (d < -LIMIT_DEG) return -LIMIT_DEG;
+  // Clamp to whichever is tighter. Belt and braces: if LIMIT_DEG is ever edited
+  // upward without the static_assert being noticed, the ceiling still holds.
+  const float lim = LIMIT_DEG < ABS_LIMIT_DEG ? LIMIT_DEG : ABS_LIMIT_DEG;
+  if (d >  lim) return  lim;
+  if (d < -lim) return -lim;
+  if (!(d == d)) return 0.0f;           // NaN from a garbled line
   return d;
 }
 

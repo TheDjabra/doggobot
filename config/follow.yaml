@@ -80,7 +80,7 @@ follow_node:
                         # 1.0 would be deadbeat and will ring, because the servo
                         # is still moving when the next frame arrives.
     kd_pan: 0.05
-    pan_limit_deg: 70.0
+    pan_limit_deg: 70.0     # hard ceiling is 90; this stays well inside it
     pan_deadband: 0.04
     pan_slip_deg: 15.0  # commanded vs measured gap that means a stall or a
                         # slipped mount, and forces a resync to reality

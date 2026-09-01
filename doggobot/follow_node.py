@@ -190,7 +190,7 @@ class FollowNode(Node):
         self.half_fov = float(g('half_fov_deg').value)
         self.kp_pan = float(g('kp_pan').value)
         self.kd_pan = float(g('kd_pan').value)
-        self.pan_limit = float(g('pan_limit_deg').value)
+        self.pan_limit = min(float(g('pan_limit_deg').value), 90.0)  # ceiling
         self.pan_deadband = float(g('pan_deadband').value)
         self.pan_slip = float(g('pan_slip_deg').value)
         self.pan_stale = float(g('pan_stale_s').value)

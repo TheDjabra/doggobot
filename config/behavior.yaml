@@ -67,7 +67,9 @@ behavior_node:
     # behavior_node is the sole /pan_cmd publisher, the same rule that keeps two
     # nodes off /cmd_vel. Priority is follow tracking > spoken look > recentre.
     pan_enabled: true
-    pan_look_deg: 45.0          # where "atlas look left" puts the camera
+    pan_look_deg: 45.0          # where "atlas look left" puts the camera.
+                                # Ceiling is +/-90 from centre, enforced in
+                                # behavior_node, pan_node and the firmware.
     pan_centre_on_idle: true    # camera returns forward when nothing is tracked
     pan_publish_hz: 20.0
 
