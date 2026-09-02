@@ -58,3 +58,11 @@ perception_node:
     exposure_us: 8000
     iso: 400
     white_balance_k: 5000
+
+    # Frames a LOST tracklet survives before it is REMOVED. Default was long
+    # enough that a box sat on an empty doorway for seconds after the person
+    # left: it reads as a live detection on the video, and everything waiting on
+    # the lock to drop waited that out first. ~1.2s at the NN rate.
+    # Too short and a person turning sideways becomes a new target with a new id.
+    tracklet_max_lifespan: 15
+

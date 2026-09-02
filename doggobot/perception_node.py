@@ -84,6 +84,7 @@ class PerceptionNode(Node):
         # onto whoever walks past. Left true, stepping out of frame and back gets
         # you a different person with no announcement.
         self.declare_parameter('relock_on_loss', False)
+        self.declare_parameter('tracklet_max_lifespan', 15)   # frames, ~1.2s
 
         # Video for the phone. JPEG encoding costs Pi CPU that the control loop
         # needs more, so it runs well below the pipeline rate and only when
@@ -127,6 +128,8 @@ class PerceptionNode(Node):
         self.depth_window = int(self.get_parameter('depth_window').value)
         self.max_objects = int(self.get_parameter('max_objects').value)
         self.relock_on_loss = bool(self.get_parameter('relock_on_loss').value)
+        self.tracklet_lifespan = int(
+            self.get_parameter('tracklet_max_lifespan').value)
         self.video_fps = float(self.get_parameter('video_fps').value)
         self.video_quality = int(self.get_parameter('video_quality').value)
         self.video_annotate = bool(self.get_parameter('video_annotate').value)
@@ -271,6 +274,16 @@ class PerceptionNode(Node):
         # target" is never ambiguous and the pan sweep has a clean trigger.
         tracker.setTrackerIdAssignmentPolicy(dai.TrackerIdAssignmentPolicy.UNIQUE_ID)
         tracker.setMaxObjectsToTrack(self.max_objects)
+        # How many frames a LOST tracklet survives before it is REMOVED. The
+        # default is long enough that a box sat on an empty doorway for several
+        # seconds after the person left, which looks like a live detection on
+        # the video feed and delays everything downstream that waits for the
+        # lock to drop.
+        #
+        # It is a real tradeoff, not a free win: this is also what bridges a
+        # brief occlusion, so too short and a person turning sideways becomes a
+        # new target with a new id. At the NN rate this is about a second.
+        tracker.setTrackletMaxLifespan(self.tracklet_lifespan)
         tracker.setRunOnHost(True)
 
         det.passthrough.link(tracker.inputTrackerFrame)

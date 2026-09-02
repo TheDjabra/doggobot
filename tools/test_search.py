@@ -49,10 +49,13 @@ def check(name, ok, detail=''):
     print(f'  [{"PASS" if ok else "FAIL"}] {name}' + (f'   {detail}' if detail else ''))
 
 
-def target(locked, pan=None):
+def target(locked, pan=None, status=None):
     if pan is not None:
         node._on_pan_state(rosstub.Data(json.dumps({'ok': True, 'deg': pan})))
-    node._on_target(rosstub.Data(json.dumps({'locked': locked})))
+    if status is None:
+        status = 'TRACKED' if locked else 'NO_TARGET'
+    node._on_target(rosstub.Data(json.dumps({'locked': locked,
+                                             'status': status})))
 
 
 LOCKS = []
@@ -167,6 +170,23 @@ check('disarm gives the lock back',
 angles = ticks(3.0)
 check('stays parked while disarmed', all(abs(a) < 1e-6 for a in angles),
       f'{len(angles)} commands')
+
+# A LOST tracklet is still LOCKED. The search clock must start when the target
+# disappears, not when the tracker eventually gives up, or the 2 s delay would
+# be stacked on top of the tracker's own timeout.
+node._on_arm(rosstub.Data(True))
+follow_again(pan=15.0)
+target(True, pan=15.0, status='LOST')
+check('a LOST tracklet starts the clock while still locked', node.lost_at > 0)
+angles = ticks(1.5)
+check('still no sweep inside the grace period', not node.searching)
+ticks(1.0)
+check('sweeps on sustained LOST without waiting for the lock to drop',
+      node.searching)
+
+# And if it simply reappears, that must cancel it rather than sweep anyway.
+target(True, pan=15.0, status='TRACKED')
+check('target reappearing cancels the search', not node.searching and not node.lost_at)
 
 print(f'\n{sum(results)}/{len(results)} checks passed')
 sys.exit(0 if all(results) else 1)

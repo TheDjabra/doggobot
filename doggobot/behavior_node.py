@@ -553,11 +553,23 @@ class BehaviorNode(Node):
             return
         self.pan_deg = d.get('deg') if d.get('ok') else None
 
-    def _end_search(self, why):
+    def _end_search(self, why, clear_lost=True):
+        """Stop sweeping. `clear_lost` also forgets that the target went missing.
+
+        Those are different things. When a tracklet goes LOST the follow
+        controller stops publishing a pan angle, but its last message stays
+        FRESH for half a second, during which this node still looks like it is
+        following. Wiping the loss timestamp there would discard the very event
+        that should start the search, and the sweep would then have to wait for
+        the tracker to give up on the tracklet entirely, which is exactly the
+        delay counting from LOST was meant to remove.
+        """
         if self.searching:
             self.get_logger().info(f'search ended: {why}')
         self.searching = False
-        self.lost_at = 0.0
+        self.search_sweeps = 0
+        if clear_lost:
+            self.lost_at = 0.0
 
     def _search_tick(self, now, dt):
         """Sweep the camera to find a lost target. Returns an angle, or None."""
@@ -631,7 +643,7 @@ class BehaviorNode(Node):
         if following:
             if self.pan_manual is not None:
                 self.pan_manual = None      # the tracker has the camera now
-            self._end_search('following again')
+            self._end_search('following again', clear_lost=False)
             target = self.follow_pan
         elif self.pan_manual is not None:
             self._end_search('manual look')
@@ -684,14 +696,35 @@ class BehaviorNode(Node):
         tracker ends the primitive without anything else having to notice.
         """
         try:
-            locked = bool(json.loads(msg.data).get('locked'))
+            d = json.loads(msg.data)
+            locked = bool(d.get('locked'))
+            status = d.get('status')
         except Exception:                                    # noqa: BLE001
             return
+
+        # START THE CLOCK WHEN THE TARGET DISAPPEARS, not when the tracker
+        # finally gives up on it. A LOST tracklet lives on for a second or so to
+        # bridge occlusion, which is useful for the follow controller but means
+        # the search would otherwise wait out that timeout FIRST and only then
+        # begin its own delay. Counting from LOST makes the 2 s mean 2 s.
+        if locked and self.active == 'follow':
+            if status == 'LOST':
+                if not self.lost_at:
+                    self.lost_at = time.time()
+                    if self.pan_deg is not None and abs(self.pan_deg) > 1.0:
+                        self.lost_side = 1.0 if self.pan_deg > 0 else -1.0
+            elif status in ('TRACKED', 'NEW') and self.lost_at:
+                # Came back on its own inside the grace period.
+                self._end_search('target visible again')
         if locked and not self.autonomy:
             # A lock acquired while suppressed must not start driving.
             self._release_lock()
             return
-        if locked and (self.searching or self.lost_at):
+        # Only a VISIBLE target counts as reacquired. A LOST tracklet is still
+        # locked, so testing the lock alone cancelled the search on the very
+        # message that had just started it.
+        if (locked and status in ('TRACKED', 'NEW')
+                and (self.searching or self.lost_at)):
             self._end_search('target reacquired')
         if locked and self.active != 'follow':
             if self.escalating:
