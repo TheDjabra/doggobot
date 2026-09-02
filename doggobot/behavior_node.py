@@ -214,6 +214,24 @@ class BehaviorNode(Node):
         # because a car cannot turn in place. A three-point turn can.
         # OFF by default: it is the newest and least tested path here, and an
         # unexpected three-point turn during the demo is worse than a wide arc.
+        # SEARCH. When a target is lost the camera sweeps to find it again,
+        # starting toward the side it was last seen on, because that is where it
+        # most likely still is.
+        #
+        # The sweep alone would be theatre: perception clears want_lock when a
+        # target is REMOVED (relock_on_loss is false), so nothing would latch on
+        # even if the sweep found somebody. Search re-requests the lock, and that
+        # is the half that actually reacquires.
+        #
+        # The delay exists because a lock often drops for a fraction of a second
+        # when someone turns or is briefly occluded. Sweeping instantly would
+        # pull the camera off a target that was about to come back.
+        self.declare_parameter('search_enabled', True)
+        self.declare_parameter('search_delay_s', 2.0)
+        self.declare_parameter('search_range_deg', 45.0)
+        self.declare_parameter('search_speed_deg_s', 35.0)
+        self.declare_parameter('search_timeout_s', 30.0)
+
         self.declare_parameter('pan_escalate', False)
         self.declare_parameter('pan_escalate_deg', 55.0)
         self.declare_parameter('pan_escalate_s', 2.5)
@@ -242,6 +260,15 @@ class BehaviorNode(Node):
         self.pan_enabled = bool(g('pan_enabled').value)
         self.pan_look = float(g('pan_look_deg').value)
         self.pan_centre_idle = bool(g('pan_centre_on_idle').value)
+        self.search_enabled = bool(g('search_enabled').value)
+        self.search_delay = float(g('search_delay_s').value)
+        # Clamp to the axis ceiling: a sweep is the easiest place to ask for an
+        # angle the mount cannot reach.
+        self.search_range = min(float(g('search_range_deg').value),
+                                PAN_CEILING_DEG)
+        self.search_speed = max(1.0, float(g('search_speed_deg_s').value))
+        self.search_timeout = float(g('search_timeout_s').value)
+
         self.pan_escalate = bool(g('pan_escalate').value)
         self.pan_escalate_deg = float(g('pan_escalate_deg').value)
         self.pan_escalate_s = float(g('pan_escalate_s').value)
@@ -263,6 +290,13 @@ class BehaviorNode(Node):
         self.pan_manual = None      # angle a spoken "look left" is holding
         self.pan_deg = None         # measured, from pan_node
         self.pan_over_since = 0.0   # when the pan angle first pinned out
+        self.lost_at = 0.0          # when the follow lock dropped, 0 = not lost
+        self.lost_side = 1.0        # which way the camera was looking when lost
+        self.searching = False
+        self.search_angle = 0.0
+        self.search_dir = 1.0
+        self.search_began = 0.0
+        self._pan_last_tick = 0.0
         self.escalating = False     # a manoeuvre WE started; do not cancel it
 
         self.cmd_pub = self.create_publisher(Twist, 'behavior_cmd', 10)
@@ -485,6 +519,52 @@ class BehaviorNode(Node):
             return
         self.pan_deg = d.get('deg') if d.get('ok') else None
 
+    def _end_search(self, why):
+        if self.searching:
+            self.get_logger().info(f'search ended: {why}')
+        self.searching = False
+        self.lost_at = 0.0
+
+    def _search_tick(self, now, dt):
+        """Sweep the camera to find a lost target. Returns an angle, or None."""
+        if not (self.search_enabled and self.pan_enabled) or not self.lost_at:
+            return None
+        if self.pan_manual is not None:        # a person asked for a look; obey
+            self._end_search('manual look')
+            return None
+        if now - self.lost_at < self.search_delay:
+            return None                        # still inside the grace period
+
+        if not self.searching:
+            self.searching = True
+            self.search_began = now
+            self.search_dir = self.lost_side
+            self.search_angle = self.pan_deg if self.pan_deg is not None else 0.0
+            # Ask for a lock again. Without this the sweep finds nobody, because
+            # perception stopped wanting one the moment the target was REMOVED.
+            self.lock_pub.publish(String(data=json.dumps({'action': 'lock'})))
+            self.get_logger().info(
+                f'searching: sweeping +/-{self.search_range:g} deg at '
+                f'{self.search_speed:g} deg/s, starting '
+                f'{"right" if self.search_dir > 0 else "left"}')
+
+        if now - self.search_began > self.search_timeout:
+            self._end_search('gave up')
+            self.lock_pub.publish(String(data=json.dumps({'action': 'release'})))
+            return 0.0                          # park looking forward
+
+        # Triangle sweep. Integrating a rate rather than stepping between end
+        # points keeps the image moving slowly enough for the detector to work:
+        # a snap to each limit spends most of its time blurred.
+        self.search_angle += self.search_dir * self.search_speed * dt
+        if self.search_angle >= self.search_range:
+            self.search_angle = self.search_range
+            self.search_dir = -1.0
+        elif self.search_angle <= -self.search_range:
+            self.search_angle = -self.search_range
+            self.search_dir = 1.0
+        return self.search_angle
+
     def _pan_tick(self):
         """Sole writer to /pan_cmd. Priority: follow > manual look > centre.
 
@@ -494,19 +574,30 @@ class BehaviorNode(Node):
         better information about where the target is.
         """
         now = time.time()
+        dt = (now - self._pan_last_tick) if self._pan_last_tick else 0.05
+        self._pan_last_tick = now
         following = (self.active == 'follow'
                      and (now - self.follow_pan_fresh) < 0.5)
 
+        # Priority: follow tracking, then a manual look, then the search sweep,
+        # then recentre. Search sits below a manual look because a person asking
+        # to look somewhere has better information than the sweep does.
         if following:
             if self.pan_manual is not None:
                 self.pan_manual = None      # the tracker has the camera now
+            self._end_search('following again')
             target = self.follow_pan
         elif self.pan_manual is not None:
+            self._end_search('manual look')
             target = self.pan_manual
-        elif self.pan_centre_idle:
-            target = 0.0
         else:
-            return
+            sweep = self._search_tick(now, dt)
+            if sweep is not None:
+                target = sweep
+            elif self.pan_centre_idle:
+                target = 0.0
+            else:
+                return
 
         self.pan_pub.publish(Float32(data=float(target)))
         self._check_escalation(following, now)
@@ -554,13 +645,25 @@ class BehaviorNode(Node):
             # A lock acquired while suppressed must not start driving.
             self._release_lock()
             return
+        if locked and (self.searching or self.lost_at):
+            self._end_search('target reacquired')
         if locked and self.active != 'follow':
             if self.escalating:
                 return          # a turn we started on purpose; let it finish
             self._cancel_sequence('follow lock acquired')
             self._enter('follow', 0.0)
         elif not locked and self.active == 'follow':
-            self.get_logger().info('follow ended: lock lost')
+            # Remember WHERE it was last seen. The side the camera was pointing
+            # is the best prior for where the target still is, so the sweep goes
+            # that way first rather than starting from a coin toss.
+            self.lost_at = time.time()
+            if self.pan_deg is not None and abs(self.pan_deg) > 1.0:
+                self.lost_side = 1.0 if self.pan_deg > 0 else -1.0
+            self.get_logger().info(
+                'follow ended: lock lost, searching '
+                f'{"right" if self.lost_side > 0 else "left"} in '
+                f'{self.search_delay:g}s'
+                if self.search_enabled else 'follow ended: lock lost')
             self._enter(None, 0.0)
 
     def _on_autonomy(self, msg):

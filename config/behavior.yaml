@@ -92,3 +92,23 @@ behavior_node:
     # arbiter zeroes steering at the end so the car coasts straight.
     degrees_per_second: 45.0
     turn_around_seconds: 4.0
+
+    # --- search sweep (added 2026-09-02) ---
+    # When a follow lock is lost, wait, then sweep the camera to find the target
+    # again, starting toward the side it was last seen on.
+    #
+    # The sweep is only half of it. perception clears want_lock when a target is
+    # REMOVED (relock_on_loss: false), so search re-requests the lock; without
+    # that it would sweep past the person and never latch on, and would look
+    # exactly like a camera that is working.
+    search_enabled: true
+    # A lock often drops for a fraction of a second when someone turns or is
+    # briefly occluded. Sweeping instantly would pull the camera off a target
+    # that was about to come back.
+    search_delay_s: 2.0
+    # +/-45 for now, limited by the mechanical block in the pan mount. Widen
+    # toward the 90 ceiling once that is fixed.
+    search_range_deg: 45.0
+    search_speed_deg_s: 35.0    # slow enough that the detector still sees
+    search_timeout_s: 30.0      # then give up, release the lock, look forward
+
