@@ -78,6 +78,9 @@ class _Node:
     def get_logger(self):
         return _Log()
 
+    def add_on_set_parameters_callback(self, cb):
+        self._param_cb = cb
+
     def destroy_node(self):
         pass
 
@@ -140,9 +143,27 @@ PAN_DT = 1.0 / 20.0          # pan_state publish rate
 
 WHEELBASE = 0.30             # m
 MAX_DELTA = math.radians(30)  # steering angle at angular.z = 1.0
-SPEED_PER_THROTTLE = 2.4     # 0.38 throttle -> ~0.9 m/s, matching the guess
+# The steering servo does not move instantly, and the first version of this
+# model pretended it did. That mattered: with instant steering NO gain in the
+# sweep produced any overshoot, while the real car visibly overshoots, so the
+# model was missing the very thing being tuned. A rate limit plus a first-order
+# lag is the cheapest honest approximation of an RC steering servo.
+STEER_TAU = 0.10             # s
+STEER_RATE = 4.0             # full -1..1 travel in about 0.5 s
+# The car has mass, and the model did not. DERIVED FROM MEASUREMENT rather than
+# invented: the car coasts 0.144 m after a command ends at 0.635 m/s, so
+# a = v^2/2d = 1.40 m/s^2. Without this the vehicle stops dead the instant the
+# controller says to, which is precisely why no gain in the sweep could ever
+# overshoot a standoff.
+ACCEL = 1.40                 # m/s^2, from the measured coast distance
+# MEASURED on the car, not guessed. 0.365 throttle produced 0.635 m/s
+# (2026-09-02 tape measure), so the scale is 0.635/0.365.
+SPEED_PER_THROTTLE = 1.74
 PAN_SLEW = 120.0             # deg/s, MEASURED on the bench 2026-08-30
-HALF_FOV = 34.5              # deg
+# Measured settling: 30 deg in 0.50 s, 120 deg in 1.00 s. A first-order
+# constant of about 0.25 s reproduces that alongside the rate limit.
+PAN_TAU = 0.25               # s
+HALF_FOV = 25.2              # deg, MEASURED 2026-09-02, see config/follow.yaml
 
 
 class World:
@@ -154,6 +175,8 @@ class World:
         self.tvx, self.tvy = target_vel
         self.pan = 0.0            # actual camera angle, chassis frame, deg
         self.pan_cmd = 0.0
+        self.steer_actual = 0.0   # what the servo managed, not what was asked
+        self.v = 0.0              # actual speed, which lags the demand
         self.use_pan = use_pan
         self.t = 0.0
         self.throttle = self.steer = 0.0
@@ -179,16 +202,29 @@ class World:
         self.tx += self.tvx * DT
         self.ty += self.tvy * DT
 
-        v = self.throttle * SPEED_PER_THROTTLE
-        delta = -self.steer * MAX_DELTA        # +ve steer = right = -ve yaw rate
+        # Servo lag: approach the demand with a time constant, rate limited.
+        err = self.steer - self.steer_actual
+        move = err * (DT / STEER_TAU)
+        lim = STEER_RATE * DT
+        self.steer_actual += max(-lim, min(lim, move))
+        v_want = self.throttle * SPEED_PER_THROTTLE
+        dv = v_want - self.v
+        lim = ACCEL * DT
+        self.v += max(-lim, min(lim, dv))
+        v = self.v
+        delta = -self.steer_actual * MAX_DELTA  # +ve steer = right = -ve yaw
         self.th += (v * math.tan(delta) / WHEELBASE) * DT
         self.x += v * math.cos(self.th) * DT
         self.y += v * math.sin(self.th) * DT
 
         if self.use_pan:
+            # Rate limit AND a settling lag. A pure rate limit reaches the
+            # target exactly on time, which hides the pile-up that an
+            # incremental command suffers while the servo is still moving.
             err = self.pan_cmd - self.pan
+            move = err * (DT / PAN_TAU)
             lim = PAN_SLEW * DT
-            self.pan += max(-lim, min(lim, err))
+            self.pan += max(-lim, min(lim, move))
         self.t += DT
 
 
@@ -259,6 +295,33 @@ def run(name, seconds=14.0, use_pan=True, target=(3.0, 2.5),
     return node, w, lost_frames, total_frames
 
 
+def camera_hunt(w, after=1.0):
+    """How much the CAMERA oscillates about the target: sign changes of the
+    aiming error, and the worst error once tracking should have settled."""
+    h = [(b - p) for t, b, _, p, _ in w.history if t > after]
+    if len(h) < 3:
+        return 0, 0.0
+    flips = sum(1 for i in range(1, len(h)) if h[i - 1] * h[i] < 0)
+    return flips, max(abs(e) for e in h)
+
+
+def swings(w, after=1.0):
+    """Overshoot metrics: sign changes of the bearing, and the worst excursion
+    after the first crossing. A loop that settles crosses zero once; one that
+    overshoots crosses repeatedly and keeps a large excursion each time."""
+    h = [(t, b) for t, b, _, _, _ in w.history if t > after]
+    if len(h) < 3:
+        return 0, 0.0
+    crossings, peak, seen = 0, 0.0, False
+    for i in range(1, len(h)):
+        if h[i - 1][1] * h[i][1] < 0:
+            crossings += 1
+            seen = True
+        if seen:
+            peak = max(peak, abs(h[i][1]))
+    return crossings, peak
+
+
 def report(name, w, lost, total, expect):
     bearing = w.bearing()
     rng = w.range_m()
@@ -295,11 +358,98 @@ def plot(w, rows=16, cols=70):
         print(f'  {hi_r:+5.0f} |{line}')
 
 
+def anchor_ab():
+    """Incremental vs anchored inner loop, on cases that stress the camera."""
+    print('camera inner loop: increment onto last command vs anchor to '
+          'measured angle\n')
+    cases = [
+        ('person crosses close and fast', (2.0, 0.0), (0.0, 1.0), 10.0),
+        ('person orbits a stopped car',   (1.0, 0.0), (0.0, 0.5), 10.0),
+        ('approach from 20 deg',          (2.8, 1.02), (0.0, 0.0), 12.0),
+    ]
+    print(f'  {"scenario":<32} {"mode":>10} {"flips":>6} {"worst aim":>10}'
+          f' {"lost":>6}')
+    print('  ' + '-' * 70)
+    for name, tgt, vel, secs in cases:
+        for label, anchor in (('increment', False), ('anchored', True)):
+            _, w, l, t = run('ab', use_pan=True, target=tgt, target_vel=vel,
+                             seconds=secs,
+                             overrides={'pan_anchor_to_measured': anchor})
+            f, worst = camera_hunt(w)
+            print(f'  {name if label == "increment" else "":<32} {label:>10}'
+                  f' {f:6d} {worst:9.1f}d {100.0 * l / max(1, t):5.1f}%')
+        print()
+    return 0
+
+
+SWEEP_KEY = 'kp_pan'
+SWEEP_VALS = (0.40, 0.55, 0.70, 0.85, 1.00)
+
+
+def gain_sweep():
+    """Sweep SWEEP_KEY over SWEEP_VALS, reporting camera hunt and lag."""
+    print(f'anchored inner loop: {SWEEP_KEY} vs lag and oscillation\n')
+    cases = [('crosses fast', (2.0, 0.0), (0.0, 1.0), 10.0),
+             ('orbits stopped car', (1.0, 0.0), (0.0, 0.5), 10.0),
+             ('static, 20 deg off', (2.8, 1.02), (0.0, 0.0), 12.0)]
+    print(f'  {SWEEP_KEY[:7]:>7} ' + ' '.join(f'{n[:18]:>22}' for n, _, _, _ in cases))
+    print(f'  {"":>7} ' + ' '.join(f'{"flips / worst aim":>22}' for _ in cases))
+    print('  ' + '-' * 78)
+    for ki in SWEEP_VALS:
+        cells = []
+        for _, tgt, vel, secs in cases:
+            _, w, l, t = run('ki', use_pan=True, target=tgt, target_vel=vel,
+                             seconds=secs,
+                             overrides=dict({'pan_anchor_to_measured': True},
+                                            **{SWEEP_KEY: ki}))
+            f, worst = camera_hunt(w)
+            cells.append(f'{f:6d} / {worst:6.1f}d')
+        print(f'  {ki:7.2f} ' + ' '.join(f'{c:>22}' for c in cells))
+    return 0
+
+
+def sweep():
+    """Grid over the loop gains, ranked by how much the car oscillates."""
+    target = (2.8, 1.02)
+    print('gain sweep: approach from 20 deg, measuring overshoot\n')
+    print(f'  {"kp_steer":>8} {"kd_steer":>8} {"kp_pan":>7} {"kd_pan":>7}'
+          f' {"crossings":>10} {"peak|brg|":>10} {"rng":>6} {"camera":>7}')
+    print('  ' + '-' * 70)
+    rows = []
+    for kps in (0.60, 0.45, 0.35, 0.25):
+        for kds in (0.10, 0.20, 0.30):
+            for kpp, kdp in ((0.55, 0.05), (0.40, 0.10)):
+                _, w, l, t = run('g', use_pan=True, target=target,
+                                 overrides={'kp_steer': kps, 'kd_steer': kds,
+                                            'kp_pan': kpp, 'kd_pan': kdp})
+                c, pk = swings(w)
+                aim = abs(w.bearing() - w.pan)
+                rows.append((c, pk, kps, kds, kpp, kdp, w.range_m(), aim))
+                print(f'  {kps:8.2f} {kds:8.2f} {kpp:7.2f} {kdp:7.2f}'
+                      f' {c:10d} {pk:10.1f} {w.range_m():6.2f} {aim:7.1f}')
+    rows.sort(key=lambda r: (r[0], r[1]))
+    c, pk, kps, kds, kpp, kdp, rng, aim = rows[0]
+    print(f'\n  calmest: kp_steer {kps}, kd_steer {kds}, kp_pan {kpp}, '
+          f'kd_pan {kdp}')
+    print(f'           {c} crossings, peak {pk:.1f} deg, range {rng:.2f} m, '
+          f'camera {aim:.1f} deg off')
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--plot', action='store_true')
+    ap.add_argument('--sweep', action='store_true')
+    ap.add_argument('--anchor-ab', action='store_true')
+    ap.add_argument('--ki-sweep', action='store_true')
     ap.add_argument('-v', '--verbose', action='store_true')
     a = ap.parse_args()
+    if a.ki_sweep:
+        return gain_sweep()
+    if a.anchor_ab:
+        return anchor_ab()
+    if a.sweep:
+        return sweep()
 
     print('follow cascade simulation')
     print(f'  plant: bicycle model, {WHEELBASE} m wheelbase, '
@@ -310,10 +460,14 @@ def main():
 
     # Target must START inside the half-FOV: acquiring something the camera
     # cannot see is the search sweep's job, not the follow loop's.
-    OFFSET = (2.8, 1.5)      # ~28 deg off the nose, 3.2 m out
-    TIGHT = (1.5, 0.9)       # ~31 deg off, 1.7 m out: forces a hard turn
+    # Both must START inside the half-FOV, which is 25.2 deg now that it has
+    # been measured rather than taken from the spec sheet. The older geometry
+    # (28 and 31 deg) sat outside it, so the car simply never saw the target and
+    # every configuration produced identical do-nothing results.
+    OFFSET = (2.8, 1.02)     # ~20 deg off the nose, 3.0 m out
+    TIGHT = (1.5, 0.55)      # ~20 deg off, 1.6 m out: forces a hard turn
 
-    print('  wide approach (target 28 deg off, 3.2 m):')
+    print('  wide approach (target 20 deg off, 3.0 m):')
     n, w, l, t = run('a', use_pan=True, target=OFFSET, verbose=a.verbose)
     results.append(report('cascade', w, l, t, 'converge'))
     first = w
@@ -322,7 +476,7 @@ def main():
     results.append(report('fixed camera', w, l, t, 'converge'))
     fixed = w
 
-    print('\n  tight turn (target 31 deg off, 1.7 m, small room):')
+    print('\n  tight turn (target 20 deg off, 1.6 m, small room):')
     n, w, l, t = run('c', use_pan=True, target=TIGHT)
     results.append(report('cascade', w, l, t, 'converge'))
     tight_pan = w
@@ -341,11 +495,14 @@ def main():
     # is stopped, so its heading is frozen. Everything the target does from here
     # is the camera's problem alone.
     print('\n  person walks around a car already stopped at the standoff:')
-    n, w, l, t = run('i', use_pan=True, target=(1.0, 0.0), target_vel=(0.0, 0.8),
+    # 0.5 m/s, not 0.8: the car's measured top speed is about 0.66 m/s, so a
+    # faster walker simply outruns it and the scenario would be testing the
+    # throttle rather than the camera.
+    n, w, l, t = run('i', use_pan=True, target=(1.0, 0.0), target_vel=(0.0, 0.5),
                      seconds=8.0)
     results.append(report('cascade', w, l, t, 'converge'))
     orbit_cascade = 100.0 * l / max(1, t)
-    n, w, l, t = run('j', use_pan=False, target=(1.0, 0.0), target_vel=(0.0, 0.8),
+    n, w, l, t = run('j', use_pan=False, target=(1.0, 0.0), target_vel=(0.0, 0.5),
                      seconds=8.0)
     report('fixed camera', w, l, t, 'converge')      # informational, not a gate
     orbit_fixed = 100.0 * l / max(1, t)

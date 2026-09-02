@@ -49,6 +49,7 @@ class Node:
     def create_subscription(self, *a, **k): return None
     def create_timer(self, *a, **k): return None
     def get_logger(self): return self._logger
+    def add_on_set_parameters_callback(self, cb): self._param_cb = cb
     def destroy_node(self): pass
 
 

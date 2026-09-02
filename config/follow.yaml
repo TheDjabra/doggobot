@@ -12,7 +12,13 @@ follow_node:
     # (measured: x=+0.455 -> steer=+0.078). The plant is the same as lane
     # following but the error signal's SCALE is not: a lane centroid deviates a
     # little, a tracked person can sit at the frame edge.
-    kp_steer: 0.6
+    # 0.45, down from 0.6. Not a taste change: err_steer is bearing/half_fov,
+    # and half_fov was corrected from 34.5 to a measured 25.2, so the SAME
+    # bearing now produces 1.37x the steering it used to. 0.6 was tuned before
+    # that. At 0.6 a 25 degree pan already saturates the steering; at 0.45 it
+    # takes about 40 degrees, which is the behaviour that was there before the
+    # measurement changed the scale underneath it.
+    kp_steer: 0.45
     ki_steer: 0.0
     kd_steer: 0.1
     steer_deadband: 0.05      # ignore <5% off-centre; stops hunting
@@ -90,10 +96,28 @@ follow_node:
     # tools/measure_fov.py reproduces it in about 20 seconds.
     half_fov_deg: 25.2
 
-    kp_pan: 0.55        # fraction of the angular error to correct per frame.
-                        # 1.0 would be deadbeat and will ring, because the servo
-                        # is still moving when the next frame arrives.
+    # The camera command is an ABSOLUTE angle anchored to the measured one, not
+    # an increment onto the last command, so it cannot ask for a position beyond
+    # the target's true bearing. That is what makes a high gain safe here: 1.0
+    # would aim exactly at the target, and only the frame latency stops it being
+    # usable. Swept in tools/sim_cascade.py --ki-sweep against a servo model
+    # with the measured 120 deg/s limit and 0.25 s settling:
+    #
+    #   kp_pan   oscillations   worst aim error, person crossing fast
+    #   0.55           1              7.0 deg
+    #   0.85           1              4.5 deg     <- here
+    #   1.00           8              3.7 deg     unstable
+    #
+    # For comparison the OLD incremental loop at 0.55 oscillated 9 times.
+    kp_pan: 0.85
     kd_pan: 0.05
+    # Integral stays OFF. It was tried: a moving person is a ramp and a
+    # proportional loop lags one, so an integrator looks like the fix. It made
+    # both the lag AND the oscillation worse at every value, because the lag is
+    # not a steady-state error, it is the servo physically unable to keep up.
+    ki_pan: 0.0
+    i_limit_pan: 0.6
+    pan_anchor_to_measured: true
     pan_limit_deg: 70.0     # hard ceiling is 90; this stays well inside it
     pan_deadband: 0.04
     pan_slip_deg: 15.0  # commanded vs measured gap that means a stall or a

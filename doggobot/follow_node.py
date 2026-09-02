@@ -144,13 +144,23 @@ class FollowNode(Node):
         # divide. Until that is done 34.5 (OAK-D Lite RGB HFOV/2) is the estimate.
         self.declare_parameter('use_pan', True)
         self.declare_parameter('half_fov_deg', 34.5)
-        self.declare_parameter('kp_pan', 0.55)
+        self.declare_parameter('kp_pan', 0.85)
         self.declare_parameter('kd_pan', 0.05)
+        # A moving person is a RAMP, and a proportional loop has a standing
+        # error on a ramp: the camera settles a fixed angle behind them. The old
+        # incremental form hid this by acting as a crude integrator, which is
+        # also why it oscillated. Anchoring fixed the oscillation and exposed
+        # the lag, so the integrator goes back in deliberately and bounded.
+        self.declare_parameter('ki_pan', 0.0)
+        self.declare_parameter('i_limit_pan', 0.6)
         self.declare_parameter('pan_limit_deg', 70.0)
         self.declare_parameter('pan_deadband', 0.04)
         # Resync the integrated pan command to the measured angle if they drift
         # apart: that means a stall, a slipped mount, or someone holding it.
         self.declare_parameter('pan_slip_deg', 15.0)
+        # false restores the older incremental form, kept only so the two can be
+        # compared rather than argued about.
+        self.declare_parameter('pan_anchor_to_measured', True)
         self.declare_parameter('pan_stale_s', 0.5)
         # perception_node stamps /target_state at PUBLISH time, not capture time,
         # so the frame is already this old when the stamp is written. The pan
@@ -193,13 +203,15 @@ class FollowNode(Node):
         self.pan_limit = min(float(g('pan_limit_deg').value), 90.0)  # ceiling
         self.pan_deadband = float(g('pan_deadband').value)
         self.pan_slip = float(g('pan_slip_deg').value)
+        self.pan_anchor = bool(g('pan_anchor_to_measured').value)
         self.pan_stale = float(g('pan_stale_s').value)
         self.capture_lag = float(g('capture_lag_s').value)
         self.align_deg = float(g('align_before_drive_deg').value)
 
         # Output is an angular CORRECTION in units of x; scaled to degrees by
         # half_fov at the call site, then integrated onto the commanded angle.
-        self.pan_pid = PID(self.kp_pan, 0.0, self.kd_pan)
+        self.pan_pid = PID(self.kp_pan, float(g('ki_pan').value), self.kd_pan,
+                           i_limit=float(g('i_limit_pan').value))
         self.pan_cmd = 0.0            # what we last asked for (integrated)
         self.pan_hist = []            # (stamp, measured_deg) ring buffer
         self.pan_ok = False
@@ -233,10 +245,48 @@ class FollowNode(Node):
                     f'throttle_floor {self.floor} exceeds {name} {ceiling}: the '
                     f'floor will override the ceiling. Raise {name}.')
 
+        # LIVE TUNING. Every parameter here was cached at startup, so
+        # `ros2 param set` changed the parameter and nothing else: that cost a
+        # calibration run earlier today, when use_pan was set false and the node
+        # carried on regardless. Gains are the ones worth iterating on with the
+        # car in front of you, so they now take effect immediately.
+        self.add_on_set_parameters_callback(self._on_set_params)
+
         self.get_logger().info(
             f'follow: standoff {self.standoff:.0f} mm, '
             f'steer PD {g("kp_steer").value}/{g("kd_steer").value}, '
             f'throttle floor {self.floor}, max {self.max_throttle}')
+
+    def _on_set_params(self, params):
+        """Apply gain changes at runtime, so tuning does not need a restart."""
+        live = {
+            'kp_steer': lambda v: setattr(self.steer_pid, 'kp', v),
+            'ki_steer': lambda v: setattr(self.steer_pid, 'ki', v),
+            'kd_steer': lambda v: setattr(self.steer_pid, 'kd', v),
+            'kp_pan':   lambda v: setattr(self.pan_pid, 'kp', v),
+            'kd_pan':   lambda v: setattr(self.pan_pid, 'kd', v),
+            'ki_pan':   lambda v: setattr(self.pan_pid, 'ki', v),
+            'kp_throttle': lambda v: setattr(self.thr_pid, 'kp', v),
+            'kd_throttle': lambda v: setattr(self.thr_pid, 'kd', v),
+            'max_steer': lambda v: setattr(self, 'max_steer', v),
+            'steer_deadband': lambda v: setattr(self, 'steer_deadband', v),
+            'half_fov_deg': lambda v: setattr(self, 'half_fov', v),
+            'standoff_mm': lambda v: setattr(self, 'standoff', v),
+            'use_pan': lambda v: setattr(self, 'use_pan', v),
+            'pan_limit_deg': lambda v: setattr(self, 'pan_limit', min(v, 90.0)),
+            'pan_anchor_to_measured': lambda v: setattr(self, 'pan_anchor', v),
+            'align_before_drive_deg': lambda v: setattr(self, 'align_deg', v),
+        }
+        for p in params:
+            fn = live.get(p.name)
+            if fn is not None:
+                fn(p.value)
+                self.get_logger().info(f'{p.name} -> {p.value}')
+        try:
+            from rcl_interfaces.msg import SetParametersResult
+            return SetParametersResult(successful=True)
+        except ImportError:                                  # tests, no ROS
+            return type('R', (), {'successful': True})()
 
     # -- helpers --------------------------------------------------------------
 
@@ -348,19 +398,35 @@ class FollowNode(Node):
         # keeps that from drifting away from reality.
         pan_meas = self._pan_at(stamp - self.capture_lag)
         if pan_meas is not None:
+            # A large gap between what was asked for and what the servo
+            # reached still means something is wrong (a stall, a slipped horn,
+            # someone holding it), so it is still worth saying out loud. It no
+            # longer needs a resync: every command is anchored to the
+            # measurement already.
             if abs(self.pan_cmd - pan_meas) > self.pan_slip:
                 self.get_logger().warn(
-                    f'pan slip: commanded {self.pan_cmd:+.0f} but measured '
-                    f'{pan_meas:+.0f}, resyncing')
-                self.pan_cmd = pan_meas
+                    f'pan not reaching its target: asked {self.pan_cmd:+.0f}, '
+                    f'measured {pan_meas:+.0f}')
             # Step the PD every frame even inside the deadband, so its
             # derivative history stays continuous; only the OUTPUT is gated.
             # A D term fed intermittently differentiates the gaps as well as the
             # signal and kicks on the first sample after a quiet stretch.
             correction = self.pan_pid.step(x, dt) * self.half_fov
             if abs(x) >= self.pan_deadband:
+                # ABSOLUTE target from the angle the camera HAD when the frame
+                # was taken, not an increment onto the last command.
+                #
+                # Incrementing overshoots by construction. The servo takes about
+                # half a second to settle and frames arrive every 80 ms, so six
+                # corrections stack up before the first has finished executing,
+                # each computed from an x that the camera has not moved to
+                # correct yet. Anchoring to the measured angle instead means
+                # successive frames during one move all ask for roughly the SAME
+                # place, and the target can never lie beyond the target's true
+                # bearing, so the axis converges onto it rather than past it.
+                base = pan_meas if self.pan_anchor else self.pan_cmd
                 self.pan_cmd = max(-self.pan_limit,
-                                   min(self.pan_limit, self.pan_cmd + correction))
+                                   min(self.pan_limit, base + correction))
             self.pan_pub.publish(Float32(data=float(self.pan_cmd)))
 
         # --- bearing: where the target is relative to the CHASSIS ---
