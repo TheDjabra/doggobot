@@ -178,9 +178,34 @@ worst possible moment:
 That restores `/etc/resolv.conf` for tailnet DNS, re-appends `ROS_DOMAIN_ID=66` after the
 class `bashrc_docker.sh` has exported 96, and installs `pyserial`.
 
+### Zeroing a new mount
+
+**Zero the servo, do not carry an offset in software.** The horn fits in 14.4 degree
+steps, so mechanical straight-ahead never lands on the encoder's centre, and the encoder
+covers exactly one turn. On this mount the horn came out 128 degrees off, which left
+only about 52 degrees of travel on one side before the count passed 4095 and **wrapped**
+instead of clamping. A software offset cannot fix that; it just moves where it breaks.
+
+The firmware boots limp for this, so the sequence is safe:
+
+```bash
+# 1. axis is free. Fit the horn and point the camera down the centreline.
+~/esptool-venv/bin/python3 tools/pan_console.py --port /dev/ttyACM1 --watch 60
+
+# 2. store this position as zero, in the servo's EEPROM. Survives power cycles.
+~/esptool-venv/bin/python3 tools/pan_console.py --port /dev/ttyACM1 z
+
+# 3. walk out to the limits, aborting on binding or high load
+~/esptool-venv/bin/python3 tools/pan_console.py --port /dev/ttyACM1 --limits
+```
+
+Done on the car 2026-09-01: 128.06 to 0.00 degrees, then every angle out to +/-90
+reached with worst error 1.9 degrees and zero bus errors.
+
 ### Calibrating the mount
 
-Two numbers depend on the bracket and cannot be guessed. Both live in `config/pan.yaml`:
+`invert` depends on the bracket, and `half_fov_deg` must be measured. Both live in
+`config/pan.yaml` and `config/follow.yaml`:
 
 ```bash
 ros2 launch doggobot pan.launch.py

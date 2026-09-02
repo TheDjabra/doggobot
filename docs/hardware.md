@@ -96,6 +96,23 @@ The USB bridge is an FTDI FT232R, serial **A5069RR4**. That serial is what
 `deploy/99-doggobot-serial.rules` matches on, so the device gets a stable name instead of
 racing the LiDAR and the VESC for `/dev/ttyUSB0`.
 
+### The board on the car (2026-09-01)
+
+A second ESP32-S3, smaller, with **native USB** rather than an FT232R. Consequences:
+
+- It presents as Espressif's own USB-Serial/JTAG unit, `303a:1001`, serial
+  `10:20:BA:0D:FA:C8` (the chip MAC), and enumerates as **ttyACM**, not ttyUSB.
+- The firmware must be built with **`CDCOnBoot=cdc`**. A stock build leaves `Serial` on
+  the hardware UART and the USB port stays silent with no error.
+- `/dev/ttyACM0` is the **VESC**. So the pan axis is never found by probing ports:
+  merely opening the VESC's tty asserts DTR and can reset it. `pan_node` resolves the
+  device from sysfs by USB serial, which opens nothing, and then confirms with a banner.
+- The udev symlink exists on the host but **not inside the container**, which gets its
+  own `/dev`. A hotplugged device needs a `docker restart` to appear; a recreate is not
+  required, and `tools/setup_container.sh` re-applies what a restart discards.
+- ModemManager runs on this Pi and probes new ttyACM devices for a modem, so the udev
+  rule sets `ID_MM_DEVICE_IGNORE`.
+
 ### Travel ceiling: +/-90 degrees
 
 The pan axis must never go more than **90 degrees either side of centre**
