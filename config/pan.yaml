@@ -14,13 +14,17 @@ pan_node:
     # Set this once the bracket is on: command "look right" and see which way it
     # goes. Getting it wrong makes the follow cascade diverge, not wander.
     invert: false
-    centre_offset_deg: 0.0          # mechanical zero trim, chassis frame
+    # ZERO IS IN THE SERVO, not here. The horn was 128 deg off encoder centre,
+    # which left only ~52 deg of travel on one side before the count wrapped, so
+    # it was calibrated into EEPROM instead (pan_console 'z' -> CalibrationOfs),
+    # verified 2026-09-01: 128.06 -> 0.00. This stays 0 and is fine trim only.
+    centre_offset_deg: 0.0
 
     # TRAVEL CEILING: +/-90 degrees from centre, never more. Operator
     # instruction 2026-09-01. This value may be lowered but a value above 90 is
     # clamped and logged as an error by pan_node, and the firmware rejects one
     # above 90 at compile time.
-    limit_deg: 75.0                 # inside the firmware's own 80 deg clamp
+    limit_deg: 90.0                 # matches the firmware clamp and the ceiling
     slew_deg_s: 200.0               # measured ceiling is ~120; this is a request
     publish_hz: 20.0
     stale_s: 0.5
