@@ -22,7 +22,10 @@
 #    "serial" is the chip's MAC address, which is unique per part.
 #    Note it also needs CDCOnBoot=cdc in the firmware build: with native USB,
 #    a stock build leaves Serial on the hardware UART and the port stays silent.
-SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ATTRS{serial}=="10:20:BA:0D:FA:C8", SYMLINK+="doggobot-pan", MODE="0666"
+# ID_MM_DEVICE_IGNORE keeps ModemManager off it. It probes new ttyACM devices
+# looking for a modem, which means writing AT commands at a servo controller and
+# holding the port while it does so.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="303a", ATTRS{idProduct}=="1001", ATTRS{serial}=="10:20:BA:0D:FA:C8", SYMLINK+="doggobot-pan", MODE="0666", ENV{ID_MM_DEVICE_IGNORE}="1"
 
 # 2. The bench board (2026-08-30): an ESP32-S3 behind an FTDI FT232R, so it
 #    enumerates as ttyUSB. FT232R serials are unique per chip.

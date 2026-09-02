@@ -29,12 +29,18 @@ kill_pat 'lib/doggobot/behavior_nod[e]'            'behavior_node'
 kill_pat 'lib/doggobot/stt_nod[e]'                 'stt_node'
 kill_pat 'lib/doggobot/safety_nod[e]'              'safety_node'
 kill_pat 'lib/doggobot/llm_nod[e]'                 'llm_node'
+# pan_node holds a serial port EXCLUSIVELY in practice, so an orphan of it does
+# not just linger, it locks the new instance out: the replacement loops on
+# "device reports readiness to read but returned no data (multiple access on
+# port?)" and the camera never moves. Observed 2026-09-01, when a pan_node from
+# an earlier launch survived a service restart because this list predated it.
+kill_pat 'lib/doggobot/pan_nod[e]'                 'pan_node'
 kill_pat 'ldlidar/ldlida[r]'                       'ldlidar'
 kill_pat 'ucsd_robocar_actuator2_pkg/vesc_twist_nod[e]' 'vesc_twist_node'
 kill_pat 'topic pu[b]'                             'stray topic pub'
 
 sleep 1
-left=$(pgrep -af 'lib/doggobot/arbiter_nod[e]|lib/doggobot/voice_bridge_nod[e]|vesc_twist_nod[e]|ros2 launc[h] doggobot' 2>/dev/null)
+left=$(pgrep -af 'lib/doggobot/arbiter_nod[e]|lib/doggobot/voice_bridge_nod[e]|lib/doggobot/pan_nod[e]|vesc_twist_nod[e]|ros2 launc[h] doggobot' 2>/dev/null)
 if [ -n "$left" ]; then
   echo "STILL RUNNING:"; echo "$left"; exit 1
 fi
