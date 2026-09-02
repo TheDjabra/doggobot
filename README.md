@@ -3,7 +3,7 @@
 **Voice-Controlled Autonomous Navigation**. MAE/ECE 148 Team 4, UC San Diego, Summer Session 2
 2026.
 
-Cesar Montiel (ECE) · Hektoras Djabra (MAE) · Naveen Weedagama (MAE)
+Cesar Montiel (ECE) · Hektoras Djabra, Hrag Djabraian (MAE) · Naveen Weedagama (MAE)
 
 ---
 
@@ -112,7 +112,9 @@ with the MAE/ECE 148 kit and are listed for completeness.
 | 25T servo horn | Ships with the servo. Bolt pattern is 4 x M2 on a 14.0 mm circle |
 
 Measured drive characteristics, the servo bring-up numbers and the traps we hit are in
-[docs/hardware.md](docs/hardware.md).
+[docs/hardware.md](docs/hardware.md). How the phone app is built, how it reaches the
+vehicle and every message they exchange is in
+[docs/app-and-comms.md](docs/app-and-comms.md).
 
 ### Software not in this repo
 

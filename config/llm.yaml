@@ -1,11 +1,9 @@
 llm_node:
   ros__parameters:
-    # Self-hosted on Rasputin (RTX 3070), reached over Tailscale. MagicDNS
-    # resolves the name from anywhere, so this works from campus as well as home.
-    #
-    # Ollama binds 127.0.0.1 by default. On the host machine, set
-    # OLLAMA_HOST=0.0.0.0:11434 and restart it, or nothing else can reach it.
-    # That is the single most common reason a local model "works on my machine".
+    # Self-hosted, not a cloud API. Any machine reachable from the car will do:
+    # ours is a desktop on the same Tailscale network, named here by its MagicDNS
+    # name. Point this at your own Ollama host. Nothing else in the stack depends
+    # on it, and with it unreachable the offline keyword path still works.
     host: "http://rasputin:11434"
 
     # 7B at Q4 is ~4.5 GB, comfortable on 8 GB VRAM. The schema does the hard

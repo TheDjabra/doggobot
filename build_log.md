@@ -518,7 +518,7 @@ for 3 s, with nothing typed.
 
 ### The throttle floor was wrong: 0.25, not 0.13 (2026-08-26)
 
-Symptom, spotted by Magnus: the drive was jumpy, and slow even on the ground.
+Symptom, spotted by Hektoras: the drive was jumpy, and slow even on the ground.
 
 Measured with `tools/vesc_smoothness.py`, which commands a range of ERPM and samples the ACTUAL
 rpm repeatedly at each step, because a speed controller that cannot hold a setpoint shows up as
@@ -587,7 +587,7 @@ when the phone is in a pocket or there is no connectivity.
 (`tools/install_service.sh` installs it). `tailscale serve` already persists across reboots, so
 the URL is live as soon as the nodes are. Logs move to journald: `journalctl -u doggobot -f`.
 
-**The stack starting is NOT the car being live.** Magnus asked for an explicit gate, which is the
+**The stack starting is NOT the car being live.** Hektoras asked for an explicit gate, which is the
 right call and better than what I first built:
 
 **Arm gate.** The arbiter has a master enable, `/arm`, defaulting **off** at power-on. While
@@ -804,7 +804,7 @@ path.
 than a vendor API. Two reasons. Everything else in the project already runs on hardware we
 control, so the parser matching that is consistent rather than special. And as a demonstration,
 "the language model runs on a machine I own" is a materially different claim from "I called an
-API" is Magnus's framing, and it is the right one.
+API" is Hektoras's framing, and it is the right one.
 
 **The schema is the safety mechanism, not the prompt.** Ollama constrains decoding to a JSON
 schema whose `action` and `until_color` fields are enums of the primitives that actually exist,
@@ -873,7 +873,7 @@ camera's VPU, language parsing on the desktop. Nothing about a spoken command le
 
 ### Explicit LLM routing, and a prompt that describes mechanism (2026-08-29)
 
-**"atlas listen ..." routes to the LLM and locks the keyword matcher out.** Magnus's idea, and it
+**"atlas listen ..." routes to the LLM and locks the keyword matcher out.** Hektoras's idea, and it
 fixed a live bug rather than just adding convenience. Previously, saying a long sentence to the
 mic let the grammar pass hear "atlas go right" inside it, match `circle_right`, and drive a six
 second circle while discarding the rest. The grammar cannot represent a sentence it has no words
@@ -976,7 +976,7 @@ camera and is not worth risking a working perception path over.
 
 ### Manual now outranks the LiDAR guard
 
-Magnus found the car could not be driven out of a tight spot: with an obstacle 0.2 m off one
+Hektoras found the car could not be driven out of a tight spot: with an obstacle 0.2 m off one
 flank, `_hazard()` vetoed **every** direction including the reverse that would free it, because
 the flank sectors apply to any motion.
 

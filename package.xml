@@ -4,7 +4,7 @@
   <name>doggobot</name>
   <version>0.1.0</version>
   <description>Voice-commanded autonomous robocar: voice bridge, vision follow, behavior primitives, and a single command arbiter. MAE/ECE 148 Team 4, Summer Session 2 2026.</description>
-  <maintainer email="hektoras@djabra.org">Hektoras Djabra</maintainer>
+  <maintainer email="hektoras@djabra.org">Hektoras Djabra (Hrag Djabraian)</maintainer>
   <license>MIT</license>
 
   <depend>rclpy</depend>

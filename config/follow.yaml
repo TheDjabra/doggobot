@@ -30,7 +30,7 @@ follow_node:
     kp_throttle: 0.0004       # err is in mm: 1000 mm error -> 0.4, clamped to max
     kd_throttle: 0.0001
     throttle_deadband_mm: 300.0   # +/-30 cm counts as "at the standoff"
-    # 0.365, not the measured 0.25 minimum. Magnus's call after driving it: 0.25
+    # 0.365, not the measured 0.25 minimum. Hektoras's call after driving it: 0.25
     # is where smoothness BEGINS, and sitting right on that edge leaves nothing
     # for the humps (carpet seams, a slight incline, a wheel catching). 0.365 also
     # lands on the class's own min_throttle, i.e. the slowest speed this platform

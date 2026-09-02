@@ -20,7 +20,7 @@ setup(
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='Hektoras Djabra',
+    maintainer='Hektoras Djabra (Hrag Djabraian)',
     maintainer_email='hektoras@djabra.org',
     description='Voice-commanded autonomous robocar for MAE/ECE 148 Team 4.',
     license='MIT',

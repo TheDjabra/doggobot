@@ -106,9 +106,10 @@ behavior_node:
     # briefly occluded. Sweeping instantly would pull the camera off a target
     # that was about to come back.
     search_delay_s: 2.0
-    # +/-45 for now, limited by the mechanical block in the pan mount. Widen
-    # toward the 90 ceiling once that is fixed.
-    search_range_deg: 45.0
+    # Full travel. Was +/-45 while a mechanical bind limited the mount; that was
+    # cleared 2026-09-02. Clamped to the axis ceiling in code, so a larger value
+    # here cannot drive the camera past what the firmware allows.
+    search_range_deg: 90.0
     search_speed_deg_s: 35.0    # slow enough that the detector still sees
     search_timeout_s: 30.0      # then give up, release the lock, look forward
 

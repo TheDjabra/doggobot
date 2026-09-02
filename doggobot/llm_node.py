@@ -182,7 +182,10 @@ class LlmNode(Node):
     def __init__(self):
         super().__init__('llm_node')
 
-        self.declare_parameter('host', 'http://rasputin:11434')
+        # Deliberately a placeholder, not a real host. The default should fail
+        # obviously on someone else's machine rather than silently point at a
+        # box they do not have; the working value lives in config/llm.yaml.
+        self.declare_parameter('host', 'http://localhost:11434')
         self.declare_parameter('model', 'qwen2.5:7b-instruct')
         self.declare_parameter('timeout_s', 12.0)
         self.declare_parameter('max_steps', 8)
