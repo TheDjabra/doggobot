@@ -129,6 +129,45 @@ KEYWORDS = [
 PAN_CEILING_DEG = 90.0
 
 
+# Quantities in a spoken command: "forward 5 m", "reverse 10 cm", "right 30
+# degrees", "forward 3 seconds". A UNIT IS REQUIRED, which is what keeps this
+# from firing on "figure 8" or "3 point turn": a bare number means nothing here.
+#
+# This lives in the keyword tier on purpose. Distances are exactly what a regex
+# is good at, and routing them through the LLM instead would make an offline,
+# instant command depend on a network round trip to a machine that might be
+# asleep. The LLM tier still handles what this cannot, like "half a foot".
+QUANTITY_RE = re.compile(
+    r'(?P<n>\d+(?:\.\d+)?)\s*'
+    r'(?P<u>millimet(?:er|re)s?|mm|centimet(?:er|re)s?|cm|met(?:er|re)s?|'
+    r'feet|foot|ft|inch(?:es)?|deg(?:rees?)?|sec(?:onds?)?|m|s|in)\b',
+    re.IGNORECASE)
+
+_TO_METRES = {'mm': 0.001, 'millimeter': 0.001, 'millimetre': 0.001,
+              'cm': 0.01, 'centimeter': 0.01, 'centimetre': 0.01,
+              'm': 1.0, 'meter': 1.0, 'metre': 1.0,
+              'ft': 0.3048, 'foot': 0.3048, 'feet': 0.3048,
+              'in': 0.0254, 'inch': 0.0254}
+
+
+def parse_quantity(text):
+    """Pull a distance, angle or duration out of spoken text. {} if there is none."""
+    m = QUANTITY_RE.search(text)
+    if not m:
+        return {}
+    n = float(m.group('n'))
+    u = m.group('u').lower().rstrip('s') if m.group('u').lower() not in (
+        's', 'ft', 'mm', 'cm', 'm', 'in') else m.group('u').lower()
+    if u.startswith('deg'):
+        return {'degrees': n}
+    if u == 's' or u.startswith('sec'):
+        return {'seconds': n}
+    for key, scale in _TO_METRES.items():
+        if u == key or u.startswith(key):
+            return {'metres': n * scale}
+    return {}
+
+
 class BehaviorNode(Node):
 
     def __init__(self):
@@ -382,7 +421,15 @@ class BehaviorNode(Node):
             return None
 
         action = self._match(text)
-        return {'action': action} if action else None
+        if not action:
+            return None
+        # Carry any quantity along with the action. Without this the keyword
+        # tier silently discarded it: "forward 5 m" matched `forward` and ran
+        # the DEFAULT three seconds, which looks like the distance model being
+        # wrong when in fact the distance never reached it.
+        step = {'action': action}
+        step.update(parse_quantity(text))
+        return step
 
     def _match(self, text):
         t = ' '.join(text.lower().split())
@@ -413,6 +460,10 @@ class BehaviorNode(Node):
         needs_wake = self.wake and source in self.wake_sources
 
         action = m.get('action')
+        # Defined here, not inside the branch below: a message carrying an
+        # explicit `action` skips that branch entirely, and the quantity merge
+        # at the end still reads this.
+        parsed_step = None
         if not action:
             # Try the top transcript, then any lower-ranked alternatives the
             # recogniser offered. A near-miss on the best guess is common in a
@@ -480,7 +531,11 @@ class BehaviorNode(Node):
                         self._start_sequence([step])
                         return
                     action = step['action']
-                    self.get_logger().info(f'"{text}" -> {action}{note}')
+                    parsed_step = step
+                    qty = ' '.join(f'{k}={v:g}' for k, v in step.items()
+                                   if k != 'action')
+                    self.get_logger().info(
+                        f'"{text}" -> {action}{" " + qty if qty else ""}{note}')
                     break
             if not action:
                 self.get_logger().info(
@@ -503,9 +558,15 @@ class BehaviorNode(Node):
             self._start_sequence(m.get('steps'))
             return
 
-        seconds = m.get('seconds')
+        seconds, metres, degrees = (m.get('seconds'), m.get('metres'),
+                                    m.get('degrees'))
+        # A quantity spoken in the text wins over one absent from the message.
+        if parsed_step:
+            seconds = parsed_step.get('seconds', seconds)
+            metres = parsed_step.get('metres', metres)
+            degrees = parsed_step.get('degrees', degrees)
         self._start(action, float(seconds) if seconds else None,
-                    metres=m.get('metres'), degrees=m.get('degrees'))
+                    metres=metres, degrees=degrees)
 
     def _on_follow(self, msg):
         self.follow_cmd = msg
