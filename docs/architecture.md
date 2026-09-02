@@ -236,6 +236,47 @@ three-point turn during the demo is worse than a wide arc.
 **Depth is a range along the optical axis**, so it stays the right error for a standoff
 regardless of bearing. The throttle loop is unchanged.
 
+## Losing the target, and going to look for it
+
+A lock does not fail cleanly. The tracker keeps a `LOST` tracklet alive for a while to bridge a
+brief occlusion, which is useful for the follow controller and misleading for anything waiting on
+the lock to drop.
+
+So the search clock starts at **`LOST`, not at lock-drop**, and after a grace period the camera
+sweeps to find the target again, starting toward the side it was last seen on because that is
+where it most likely still is. Priority on the pan axis is follow tracking, then a spoken look,
+then the sweep, then recentre.
+
+**The sweep is the easy half.** `perception_node` clears `want_lock` when a target is `REMOVED`,
+so a camera that swept beautifully and never asked for a lock again would pass straight over the
+person and latch onto nothing, while looking exactly like a camera that is working. Search
+re-requests the lock, and releases it if it gives up.
+
+The grace period earns its place too: a lock often drops for a fraction of a second when someone
+turns or is briefly occluded, and sweeping instantly would drag the camera off a target that was
+about to come back.
+
+## Distances and angles, and why they are not the same problem
+
+"Forward one metre" becomes a duration, because the class actuator node holds the motor
+controller's serial port and publishes no telemetry, so wheel travel is unreadable while the
+stack runs. That makes it dead reckoning, and dead reckoning is only as good as its constants.
+
+Measured on the vehicle rather than assumed:
+
+    distance = rate * time + coast      0.635 m/s, 0.144 m
+    angle    = rate * time              45 deg/s, no coast term
+
+**Distance needs a coast term and turning does not**, which is not obvious and is worth the
+sentence. The car rolls about 14 cm after a command ends. Turning is immune because the arbiter
+publishes a zero Twist when a command finishes, so the steering centres and the car coasts
+straight rather than continuing round.
+
+It matters most at the distances actually used indoors: dividing distance by a rate alone, a
+0.3 m command travelled 0.45 m, fifty per cent over. `tools/calibrate_motion.py` re-measures both,
+and refuses any sample where the LiDAR guard cut in mid-run, since that would quietly shorten the
+result.
+
 ## Close-range framing
 
 The camera pans but does not tilt, so a person at close range overflows the vertical field

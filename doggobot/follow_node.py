@@ -138,12 +138,14 @@ class FollowNode(Node):
 
         # -- pan cascade --
         # half_fov_deg converts the normalised bbox offset into an angle. It is
-        # NOT simply the camera's spec sheet HFOV: `x` is normalised across the
-        # detector's input, which is letterboxed, so the effective angle per unit
-        # of x has to be measured. Put the target at a known bearing, read x,
-        # divide. Until that is done 34.5 (OAK-D Lite RGB HFOV/2) is the estimate.
+        # NOT the camera's spec-sheet HFOV: `x` is normalised across the
+        # DETECTOR's input, and DetectionNetwork.build requests that input with
+        # the default resize mode, CROP, so the network sees a centre crop of the
+        # sensor and x = 1 spans a much narrower angle than the frame edge.
+        # MEASURED at 25.2 on 2026-09-02 against a spec-derived 34.5, a 36% error.
+        # tools/measure_fov.py reproduces it in about 20 seconds.
         self.declare_parameter('use_pan', True)
-        self.declare_parameter('half_fov_deg', 34.5)
+        self.declare_parameter('half_fov_deg', 25.2)
         self.declare_parameter('kp_pan', 0.85)
         self.declare_parameter('kd_pan', 0.05)
         # A moving person is a RAMP, and a proportional loop has a standing

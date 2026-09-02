@@ -1,21 +1,23 @@
-# First-closed-loop-on-the-ground settings. Deliberately timid.
+# Deliberately timid follow settings, for a first run in an unfamiliar space or
+# after a change that could destabilise the loop. Slowest speed the motor will
+# sustain, reverse off so a target stepping toward the car cannot make it dart
+# backwards, and gentle steering.
 #
-# The follow loop has only ever run on a stand, where the error never responds to
-# the output, so overshoot and oscillation are completely unmeasured. This config
-# changes one thing at a time: it lets the car chase, at the slowest speed the
-# motor will sustain, with reverse switched off so a target stepping toward the
-# car cannot make it dart backwards.
+#   ros2 launch doggobot all.launch.py follow_config:=follow_firstrun.yaml
 #
-#   ros2 launch doggobot all.launch.py
-#   (then load this over follow.yaml, or copy its values in)
+# UPDATED 2026-09-02. This file was written before the loop had ever run on the
+# ground and before half_fov_deg was measured. It kept kp_steer at 0.6, which
+# after that measurement is HOTTER than the tuned config in follow.yaml, so the
+# "timid" file was the aggressive one. Steering and the camera gain are now set
+# below what follow.yaml uses, which is what this file is for.
 #
-# Once the loop is seen to be stable, raise max_throttle toward 0.25 and turn
-# reverse back on.
+# Once the loop is seen to be stable, move to follow.yaml rather than raising
+# values here.
 follow_node:
   ros__parameters:
-    kp_steer: 0.6
+    kp_steer: 0.30      # follow.yaml uses 0.45; this is deliberately below it
     ki_steer: 0.0
-    kd_steer: 0.1
+    kd_steer: 0.15
     steer_deadband: 0.05
     max_steer: 0.7
 
@@ -30,4 +32,12 @@ follow_node:
     max_reverse: 0.382
 
     target_timeout_s: 0.5
+
+    # Camera cascade, also gentler than follow.yaml (0.85).
+    use_pan: true
+    half_fov_deg: 25.2            # measured, see follow.yaml for the method
+    kp_pan: 0.60
+    kd_pan: 0.05
+    pan_anchor_to_measured: true
+    capture_lag_s: 0.08
     debug_hz: 2.0

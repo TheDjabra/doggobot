@@ -84,5 +84,6 @@ else:
     hf = -1.0 / slope
     resid = max(abs(x - (mx + slope * (p - mp))) for p, x in pts)
     print(f'worst residual = {resid:.3f} in x')
-    print(f'\n  half_fov_deg = {hf:.1f}   (currently configured 34.5)')
+    print(f'\n  half_fov_deg = {hf:.1f}   '
+          f'(config/follow.yaml currently says 25.2, measured 2026-09-02)')
 n.destroy_node(); rclpy.shutdown()

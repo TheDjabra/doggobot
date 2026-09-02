@@ -381,12 +381,11 @@ build_log.md  dated engineering record
 
 ## Acknowledgements
 
-Dr. Jack Silberman for the course and the project direction, and the course tutors and
-teaching assistants for hardware support and troubleshooting through the session.
-Built on the class `ucsd_robocar_hub2` framework.
+Dr. Jack Silberman for the course and the project direction. Our tutors **Jose** and
+**Daniel** for hardware support and troubleshooting through the session, and the rest of the
+teaching staff. Built on the class `ucsd_robocar_hub2` framework.
 
-<!-- TODO: name the TAs and tutors individually here. Jose helped with the CV/model task;
-     add the others by name rather than leaving this generic. -->
+<!-- TODO: add any remaining TAs by name. -->
 
 ---
 

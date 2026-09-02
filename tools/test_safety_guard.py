@@ -11,7 +11,7 @@ Two claims to prove, and the second matters more than the first:
      block is RELEASED, never the distance at which one starts, so the car must
      still stop at exactly the same range as before.
 
-Run: python3 tools/test_safety_hysteresis.py
+Run: python3 tools/test_safety_guard.py
 """
 import json
 import math

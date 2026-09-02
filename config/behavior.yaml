@@ -37,10 +37,6 @@ behavior_node:
     # drives off a bench when you look away.
     color_react_seconds: 300.0
 
-    # A held full-lock circle long enough to come back around. Geometry and
-    # surface dependent (steering throw, wheelbase, grip), so measure it: drive
-    # it, see where the nose ends up, adjust. 3 s is a starting guess.
-    turn_around_seconds: 3.0
 
     # Three-point turn legs. Turns the car around in far less space than a
     # circle, which is what matters indoors: the car's Ackermann turning radius
@@ -50,17 +46,6 @@ behavior_node:
     three_point_reverse_s: 1.6
     three_point_settle_s: 0.8
 
-    # Dead-reckoning calibration, for "forward 1 metre" and "right 30 degrees".
-    # Open-loop: the VESC reports a tachometer but the class actuator node holds
-    # the port and publishes nothing, so wheel travel is unreadable while the
-    # stack runs. Closing that loop means replacing that node.
-    #
-    # BOTH ARE MEASURED, not computed:
-    #   metres_per_second  - run `forward` for a known time, tape-measure it
-    #   degrees_per_second - run `turn_around`, see how far the nose swung
-    # Both change with surface, slope and pack charge, so re-check at the venue.
-    metres_per_second: 0.9
-    degrees_per_second: 60.0
     max_metres: 8.0
 
     # --- camera pan axis (added 2026-08-30) ---
