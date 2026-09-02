@@ -212,8 +212,22 @@ class PanNode(Node):
             if not os.path.exists(path):
                 continue
             try:
-                s = serial.Serial(path, self.baud, timeout=0.2)
-                time.sleep(2.0)          # the ESP32 reboots when DTR asserts
+                # Do NOT let pyserial assert DTR/RTS on open. This board has
+                # NATIVE USB, and specific DTR/RTS combinations are exactly how
+                # an ESP32-S3 is put into download mode. Opening the port the
+                # default way knocked the firmware out, and because every
+                # reconnect did it again, the retry loop held it there: the
+                # device enumerated perfectly and emitted nothing at all.
+                # Setting them before open() applies them at open time.
+                s = serial.Serial()
+                s.port = path
+                s.baudrate = self.baud
+                s.timeout = 0.2
+                s.dtr = False
+                s.rts = False
+                s.exclusive = True       # refuse to share it with a second opener
+                s.open()
+                time.sleep(0.3)
                 s.reset_input_buffer()
                 if not self._identify(s):
                     self.get_logger().warn(
@@ -243,8 +257,16 @@ class PanNode(Node):
             if self.ser is None:
                 self.ser = self._open()
                 if self.ser is None:
-                    time.sleep(self.reconnect_s)
+                    # Back off. Retrying hard at a device that is not answering
+                    # is how a transient became permanent here.
+                    self._fails = min(getattr(self, '_fails', 0) + 1, 6)
+                    wait = self.reconnect_s * (2 ** (self._fails - 1))
+                    if self._fails in (1, 3, 6):
+                        self.get_logger().warn(
+                            f'pan axis not found, retrying in {wait:.0f}s')
+                    time.sleep(min(wait, 30.0))
                     continue
+                self._fails = 0
             try:
                 chunk = self.ser.read(256).decode('utf-8', 'replace')
             except Exception as e:                           # noqa: BLE001
