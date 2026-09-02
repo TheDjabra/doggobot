@@ -80,18 +80,48 @@ Full detail in [docs/architecture.md](docs/architecture.md).
 
 ## Hardware
 
-| Item | Notes |
-|---|---|
-| Raspberry Pi 5, 16 GB | RPi OS Bookworm, everything runs in a Docker container |
-| VESC | `/dev/ttyACM0`, driven by the class `vesc_twist_node` |
-| OAK-D Lite | detection, stereo depth and object tracking on the camera's own VPU |
-| LD06 LiDAR | mounted highest for an unobstructed 360 view, `/dev/ttyUSB0` |
-| Samson Go Mic | USB, cardioid, on-board speech |
-| 4S pack | main power; camera and LiDAR fed via a DC-DC converter |
-| Feetech STS3215 + bus adapter | camera pan axis (integration in progress) |
+Enough detail to order the parts, not just to recognise them. Items marked *course* came
+with the MAE/ECE 148 kit and are listed for completeness.
 
-Wiring, measured drive characteristics and the traps we hit are in
+### Vehicle
+
+| Item | Detail that matters |
+|---|---|
+| 1/10 scale RC chassis | *course.* Ackermann steering, brushless motor |
+| VESC | *course.* Enumerates at `/dev/ttyACM0`, driven by the class `vesc_twist_node` |
+| Raspberry Pi 5, 16 GB | RPi OS Bookworm. Everything runs in a Docker container |
+| **4S** LiPo | Main pack. **Set the VESC cutoff for 4S**: a 3S profile on a 4S pack cuts off at 2.25 V per cell and destroys the battery. This cost us one |
+| DC-DC converter | Steps the 4S pack down for the Pi, camera and LiDAR |
+
+### Sensing
+
+| Item | Detail that matters |
+|---|---|
+| Luxonis **OAK-D Lite** | Detection, stereo depth and tracking on the camera's own VPU. Draws enough that it wants the DC-DC rail, not the Pi's USB alone |
+| **LD06** LiDAR | 360 scan, `/dev/ttyUSB0`. Mount it highest so the vehicle does not occlude it |
+| **Samson Go Mic** | USB, class-compliant, **switch it to cardioid**. Omni picks up the Pi's own fan |
+
+### Camera pan axis
+
+| Item | Detail that matters |
+|---|---|
+| **Feetech STS3215** serial-bus servo | 7.4 V, 19 kg, 12-bit magnetic encoder. **Serial bus, not PWM**: the VESC's servo output is already committed to steering, and the loop needs the servo's *measured* angle, which a hobby PWM servo cannot report |
+| **Waveshare Bus Servo Adapter (A)** | The servo driver. Half-duplex TTL UART to the servo bus. Jumper on **A (UART-SERVO)**. Servo power goes into this board's own screw terminal, never from the microcontroller |
+| **ESP32-S3** dev board | Talks the servo bus and nothing else. Ours has **native USB**, which changes the firmware build, see [firmware/README.md](firmware/README.md) |
+| **2S** LiPo, 2200 mAh | **Powers the servo, through the adapter.** Separate from the main pack on purpose: the servo is 7.4 V and the vehicle runs 4S, and a 19 kg servo's stall current is amps, not milliamps |
+| 25T servo horn | Ships with the servo. Bolt pattern is 4 x M2 on a 14.0 mm circle |
+
+Measured drive characteristics, the servo bring-up numbers and the traps we hit are in
 [docs/hardware.md](docs/hardware.md).
+
+### Software not in this repo
+
+| | |
+|---|---|
+| `ucsd_robocar_hub2` | *course* framework, supplies `vesc_twist_node` and the `ldlidar` driver |
+| Detector weights | Not in git. `models/README.md` says exactly what they are and how to rebuild them |
+| Vosk speech model | `bash tools/get_vosk_model.sh` fetches it |
+| Ollama host | Optional. Only the LLM slow path needs it, and it is a plain HTTP host in `config/llm.yaml` |
 
 ---
 

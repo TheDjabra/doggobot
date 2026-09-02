@@ -112,9 +112,77 @@ the layer that cannot be talked out of it. A bad angle from a ROS bug, a mistype
 command, or a garbled byte all stop at the same wall. This axis free-spins, and an unclamped
 target has previously walked it into its own wiring.
 
-### Flashing
+### Power, and what drives the servo
+
+The servo is **not** driven by the ESP32 and **not** powered from the vehicle's main pack.
+
+```
+  2S LiPo 7.4V ----> Waveshare Bus Servo Adapter (A) ----> STS3215
+                              ^  jumper on A (UART-SERVO)
+                              |  half-duplex TTL UART, 1 Mbps
+                       ESP32-S3 GPIO 16/17 + GND
+```
+
+The adapter is the servo driver: it takes 7.4 V into its own screw terminal and converts the
+ESP32's UART into the half-duplex bus the servo speaks. Three rules, each of which has cost
+somebody an evening somewhere:
+
+- **Servo power goes into the adapter**, never from the microcontroller's 5 V pin. A 19 kg
+  servo's stall current is amps.
+- **Common ground** between adapter and ESP32 is mandatory, or the UART floats.
+- The main pack is 4S and the servo is 7.4 V, which is why this axis gets its own 2S pack
+  rather than a tap off the vehicle.
+
+### Toolchain
+
+| | |
+|---|---|
+| arduino-cli core | `esp32:esp32` 3.3.11 |
+| Library | `SCServo` 1.0.2 (provides `SMS_STS.h`) |
+
+### Building and flashing
+
+**The FQBN options are not optional on a native-USB board.** Ours enumerates as
+`303a:1001`, Espressif's own USB-Serial/JTAG unit, rather than through a separate UART chip.
+A stock `esp32:esp32:esp32s3` build leaves `Serial` on the hardware UART pins, so the USB
+port stays **completely silent with no error at all**, which looks exactly like a dead board.
 
 ```bash
-arduino-cli compile --fqbn esp32:esp32:esp32s3 -u -p /dev/ttyUSB0 esp32_pan
-python3 ../tools/pan_console.py --selftest
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc" \
+    -u -p /dev/ttyACM0 esp32_pan
+python3 ../tools/pan_console.py --port /dev/ttyACM0 --selftest
 ```
+
+A board behind an external USB-UART chip (an FT232R, say) enumerates as `ttyUSB*` and does
+not need `CDCOnBoot`, since its `Serial` already goes out over that chip.
+
+### Flashing from the Pi, once it is on the vehicle
+
+`arduino-cli` need not be installed on the Pi. Build the binaries on a laptop and push them:
+
+```bash
+# on the laptop
+arduino-cli compile --fqbn "esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc" \
+    --output-dir /tmp/panbuild esp32_pan
+scp /tmp/panbuild/esp32_pan.ino*.bin \
+    ~/.arduino15/packages/esp32/hardware/esp32/*/tools/partitions/boot_app0.bin  pi@doggobot:~/panfw/
+
+# on the Pi, once:  python3 -m venv ~/esptool-venv && ~/esptool-venv/bin/pip install esptool
+cd ~/panfw && ~/esptool-venv/bin/esptool --chip esp32s3 --port /dev/doggobot-pan \
+    --baud 460800 write-flash -z \
+    0x0     esp32_pan.ino.bootloader.bin \
+    0x8000  esp32_pan.ino.partitions.bin \
+    0xe000  boot_app0.bin \
+    0x10000 esp32_pan.ino.bin
+```
+
+If the board ever goes silent and stays silent, a hard reset recovers it:
+
+```bash
+~/esptool-venv/bin/esptool --port /dev/doggobot-pan --after hard-reset --no-stub chip-id
+```
+
+**Do not open its serial port with DTR asserted.** On a native-USB S3, DTR/RTS combinations
+are how the chip is put into download mode, and pyserial asserts DTR by default, so a naive
+reconnect loop will hold a working board offline indefinitely. `pan_node` sets `dtr` and
+`rts` false before `open()` for exactly this reason.
