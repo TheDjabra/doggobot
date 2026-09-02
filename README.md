@@ -125,7 +125,7 @@ the vehicle boots to a working control page with no terminal involved.
 
 ### Check it without any hardware at all
 
-Six suites run on a laptop with no ROS, no car and no camera, by stubbing the ROS client
+Four suites run on a laptop with no ROS, no car and no camera, by stubbing the ROS client
 library and driving the real nodes:
 
 ```bash
