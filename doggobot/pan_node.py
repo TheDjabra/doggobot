@@ -31,6 +31,7 @@ happened to be.
 """
 import json
 import math
+import os
 import threading
 import time
 
@@ -58,7 +59,20 @@ class PanNode(Node):
         # By-id, not /dev/ttyUSB0: the LiDAR already claims ttyUSB0 on this Pi,
         # and USB enumeration order is not a promise. See deploy/99-doggobot-serial.rules
         self.declare_parameter('port', '/dev/doggobot-pan')
-        self.declare_parameter('fallback_port', '/dev/ttyUSB1')
+        # Candidates tried in order. The udev symlink exists on the HOST but not
+        # inside the container, which gets its own /dev, so the name alone cannot
+        # be trusted here: the VESC is ttyACM0 and this is ttyACM1, and a boot
+        # order swap would have us writing 'p 30' into the motor controller.
+        # Hence the identity check in _open below.
+        # Never probe blind. /dev/ttyACM0 is the VESC and /dev/ttyUSB0 is the
+        # LiDAR: merely OPENING those asserts DTR and can reset them, and the
+        # motor controller is not something to poke to see what answers. The
+        # USB serial below is read from sysfs, which touches no device at all.
+        self.declare_parameter('usb_serial', '10:20:BA:0D:FA:C8')
+        self.declare_parameter('probe_ports', ['/dev/doggobot-pan',
+                                               '/dev/ttyACM1'])
+        self.declare_parameter('identify_s', 1.5)
+        self.declare_parameter('fallback_port', '')
         self.declare_parameter('baud', 115200)
         self.declare_parameter('invert', False)
         self.declare_parameter('limit_deg', 75.0)
@@ -75,6 +89,9 @@ class PanNode(Node):
         g = self.get_parameter
         self.port = g('port').value
         self.fallback_port = g('fallback_port').value
+        self.probe_ports = list(g('probe_ports').value or [])
+        self.usb_serial = str(g('usb_serial').value or '').strip()
+        self.identify_s = float(g('identify_s').value)
         self.baud = int(g('baud').value)
         self.invert = bool(g('invert').value)
         # +/-90 is a hardware ceiling, not a preference. A config asking for
@@ -118,18 +135,93 @@ class PanNode(Node):
 
     # -- serial ---------------------------------------------------------------
 
+    def _by_usb_serial(self):
+        """Find the tty whose USB device carries our serial number.
+
+        Read-only: it walks sysfs and opens nothing, so a wrong guess costs
+        nothing. This is what makes the device name irrelevant, which matters
+        inside the container, where the udev symlink does not exist and the
+        VESC is the adjacent ttyACM.
+        """
+        if not self.usb_serial:
+            return []
+        found = []
+        base = '/sys/class/tty'
+        try:
+            names = sorted(os.listdir(base))
+        except OSError:
+            return []
+        for name in names:
+            if not name.startswith(('ttyACM', 'ttyUSB')):
+                continue
+            dev = os.path.join(base, name, 'device')
+            # Walk up to the USB device node that carries the serial attribute.
+            path = os.path.realpath(dev)
+            for _ in range(6):
+                cand = os.path.join(path, 'serial')
+                if os.path.isfile(cand):
+                    try:
+                        with open(cand) as f:
+                            if f.read().strip() == self.usb_serial:
+                                found.append(f'/dev/{name}')
+                    except OSError:
+                        pass
+                    break
+                parent = os.path.dirname(path)
+                if parent == path:
+                    break
+                path = parent
+        return found
+
+    def _identify(self, s):
+        """Ask the port what it is, and believe only the right answer.
+
+        Opening a serial device proves nothing about what is on the other end.
+        The banner is cheap and unambiguous, and the alternative is discovering
+        the mistake by watching the wrong hardware react to a pan command.
+        """
+        try:
+            s.reset_input_buffer()
+            s.write(b'i\n')
+        except Exception:                                    # noqa: BLE001
+            return False
+        end = time.time() + self.identify_s
+        buf = ''
+        while time.time() < end:
+            try:
+                buf += s.read(128).decode('utf-8', 'replace')
+            except Exception:                                # noqa: BLE001
+                return False
+            if 'esp32_pan' in buf:
+                return True
+        return False
+
     def _open(self):
         if serial is None:
             self.get_logger().error('pyserial not installed: pip install pyserial')
             return None
-        for path in (self.port, self.fallback_port):
-            if not path:
+        matched = self._by_usb_serial()
+        if matched:
+            self.get_logger().info(
+                f'usb serial {self.usb_serial} is {", ".join(matched)}')
+        seen = []
+        for path in matched + [self.port, self.fallback_port] + self.probe_ports:
+            if not path or path in seen:
+                continue
+            seen.append(path)
+            if not os.path.exists(path):
                 continue
             try:
                 s = serial.Serial(path, self.baud, timeout=0.2)
                 time.sleep(2.0)          # the ESP32 reboots when DTR asserts
                 s.reset_input_buffer()
-                self.get_logger().info(f'pan axis connected on {path}')
+                if not self._identify(s):
+                    self.get_logger().warn(
+                        f'{path}: opened but did not identify as esp32_pan, '
+                        'leaving it alone')
+                    s.close()
+                    continue
+                self.get_logger().info(f'pan axis identified on {path}')
                 # Hand the firmware its working configuration, in this order.
                 # The offset goes FIRST so that the clamp the firmware applies
                 # is measured from mechanical straight ahead rather than from

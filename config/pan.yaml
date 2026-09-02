@@ -7,7 +7,10 @@ pan_node:
     port: /dev/doggobot-pan
     # The board fitted to the car has native USB, so it enumerates as ttyACM,
     # not ttyUSB. Used only if the udev rule is not installed yet.
-    fallback_port: /dev/ttyACM1
+    fallback_port: ""
+    # Resolved from sysfs first, which opens nothing. /dev/ttyACM0 is the VESC:
+    # merely opening it asserts DTR, so the pan axis is never found by probing.
+    usb_serial: "10:20:BA:0D:FA:C8"
     baud: 115200
 
     # Which way the servo faces is a property of the mount, not the code.
