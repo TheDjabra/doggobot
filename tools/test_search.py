@@ -89,6 +89,8 @@ def follow_again(pan=0.0):
 
 print('search sweep\n')
 
+node._on_arm(rosstub.Data(True))          # nothing sweeps while disarmed
+
 # Acquire, then lose the target while the camera is pointing RIGHT.
 target(True)
 node.follow_pan, node.follow_pan_fresh = 20.0, clock.time()
@@ -146,6 +148,25 @@ check('gives up after the timeout', not node.searching)
 check('releases the lock when giving up', 'release' in LOCKS,
       f'published {LOCKS}')
 check('parks looking forward', abs(angles[-1]) < 1e-6, f'{angles[-1]:+.1f} deg')
+
+# Disarm must stop the head, not just the wheels.
+node._on_arm(rosstub.Data(True))
+follow_again(pan=25.0)
+target(False, pan=25.0)
+ticks(2.5)
+check('searching again before the disarm test', node.searching)
+node.sent.clear()
+node._on_arm(rosstub.Data(False))
+check('DISARM ends the search', not node.searching)
+parked = [m.data for m in node.sent.get('pan_cmd', [])]
+check('disarm parks the camera forward', parked and abs(parked[-1]) < 1e-6,
+      f'{parked}')
+check('disarm gives the lock back',
+      'release' in [json.loads(m.data)['action']
+                    for m in node.sent.get('target_lock', [])])
+angles = ticks(3.0)
+check('stays parked while disarmed', all(abs(a) < 1e-6 for a in angles),
+      f'{len(angles)} commands')
 
 print(f'\n{sum(results)}/{len(results)} checks passed')
 sys.exit(0 if all(results) else 1)

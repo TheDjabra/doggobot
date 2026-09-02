@@ -293,11 +293,13 @@ class BehaviorNode(Node):
         self.lost_at = 0.0          # when the follow lock dropped, 0 = not lost
         self.lost_side = 1.0        # which way the camera was looking when lost
         self.searching = False
+        self.search_sweeps = 0
         self.search_angle = 0.0
         self.search_dir = 1.0
         self.search_began = 0.0
         self._pan_last_tick = 0.0
         self.escalating = False     # a manoeuvre WE started; do not cancel it
+        self.armed = False
 
         self.cmd_pub = self.create_publisher(Twist, 'behavior_cmd', 10)
         self.lock_pub = self.create_publisher(String, 'target_lock', 10)
@@ -313,6 +315,11 @@ class BehaviorNode(Node):
         self.create_subscription(String, 'target_state', self._on_target, 10)
         self.create_subscription(String, 'condition_state', self._on_condition, 10)
         self.create_subscription(Bool, 'autonomy_enabled', self._on_autonomy, 10)
+        # DISARM is not just a motor gate. This node was never told about it, so
+        # a disarmed car kept tracking and sweeping with its camera: the wheels
+        # stopped and the head carried on, which is not what anyone means by
+        # disarmed.
+        self.create_subscription(Bool, 'arm', self._on_arm, 10)
         self.pan_pub = self.create_publisher(Float32, 'pan_cmd', 10)
         self.create_subscription(Float32, 'follow_pan', self._on_follow_pan, 10)
         self.create_subscription(String, 'pan_state', self._on_pan_state, 10)
@@ -504,6 +511,33 @@ class BehaviorNode(Node):
         self.follow_cmd = msg
         self.follow_fresh = time.time()
 
+    def _on_arm(self, msg):
+        armed = bool(msg.data)
+        if armed == self.armed:
+            return
+        self.armed = armed
+        if armed:
+            return
+        # Disarming stops EVERYTHING this node drives, camera included, and
+        # gives the lock back. Otherwise the head keeps hunting a person while
+        # the operator believes they have switched the robot off.
+        # Capture this BEFORE ending the search: a search has re-requested the
+        # lock even though `active` is None, so releasing only when following
+        # would leave a disarmed car ready to grab the next person who walks
+        # past.
+        held_lock = (self.active == 'follow') or self.searching
+        self._end_search('disarmed')
+        self.pan_manual = None
+        if held_lock:
+            self._release_lock()
+        self._cancel_sequence('disarmed')
+        if self.active is not None:
+            self.get_logger().info(f'disarmed: stopping {self.active}')
+            self._enter(None, 0.0)
+            self.cmd_pub.publish(Twist())
+        if self.pan_enabled:
+            self.pan_pub.publish(Float32(data=0.0))
+
     def _on_follow_pan(self, msg):
         self.follow_pan = float(msg.data)
         self.follow_pan_fresh = time.time()
@@ -529,6 +563,9 @@ class BehaviorNode(Node):
         """Sweep the camera to find a lost target. Returns an angle, or None."""
         if not (self.search_enabled and self.pan_enabled) or not self.lost_at:
             return None
+        if not self.armed:
+            self._end_search('disarmed')
+            return None
         if self.pan_manual is not None:        # a person asked for a look; obey
             self._end_search('manual look')
             return None
@@ -537,6 +574,7 @@ class BehaviorNode(Node):
 
         if not self.searching:
             self.searching = True
+            self.search_sweeps = 0
             self.search_began = now
             self.search_dir = self.lost_side
             self.search_angle = self.pan_deg if self.pan_deg is not None else 0.0
@@ -560,9 +598,17 @@ class BehaviorNode(Node):
         if self.search_angle >= self.search_range:
             self.search_angle = self.search_range
             self.search_dir = -1.0
+            self.search_sweeps += 1
+            self.get_logger().info(
+                f'sweep reached +{self.search_range:g}, heading left '
+                f'(leg {self.search_sweeps})')
         elif self.search_angle <= -self.search_range:
             self.search_angle = -self.search_range
             self.search_dir = 1.0
+            self.search_sweeps += 1
+            self.get_logger().info(
+                f'sweep reached -{self.search_range:g}, heading right '
+                f'(leg {self.search_sweeps})')
         return self.search_angle
 
     def _pan_tick(self):
