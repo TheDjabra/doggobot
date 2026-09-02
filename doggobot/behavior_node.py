@@ -98,6 +98,15 @@ from std_msgs.msg import Bool, Float32, String
 # "back up" in the vocabulary it will happily return just "back". Matching only
 # full phrases meant a perfectly good recognition ("back") matched nothing.
 KEYWORDS = [
+    # LOOK FIRST, and this order is load-bearing. Matching is first-wins on a
+    # substring, and "look forward" contains "forward", so with the drive
+    # primitives ahead of these a request to turn the CAMERA drove the CAR.
+    # Caught on the vehicle 2026-09-01. Anything added below must not be a
+    # substring of a look phrase.
+    ('look_left',    ('look left', 'look to the left', 'camera left')),
+    ('look_right',   ('look right', 'look to the right', 'camera right')),
+    ('look_forward', ('look forward', 'look ahead', 'look straight',
+                      'eyes front', 'camera centre', 'camera center')),
     ('figure_eight', ('figure eight', 'figure of eight', 'figure 8', 'do a figure eight')),
     ('three_point',  ('three point turn', 'three point', '3 point turn',
                       'k turn', 'point turn')),
@@ -109,10 +118,6 @@ KEYWORDS = [
                       'back')),
     ('forward',      ('go forward', 'forward', 'go straight', 'straight',
                       'ahead')),
-    ('look_left',    ('look left', 'look to the left', 'camera left')),
-    ('look_right',   ('look right', 'look to the right', 'camera right')),
-    ('look_forward', ('look forward', 'look ahead', 'look straight',
-                      'eyes front', 'camera centre', 'camera center')),
     ('follow',       ('follow me', 'follow', 'come here')),
     ('wait',         ('wait', 'hold', 'stay', 'freeze')),
     ('stop',         ('stop it', 'stop', 'halt')),

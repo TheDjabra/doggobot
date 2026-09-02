@@ -1,19 +1,20 @@
-__pycache__/
-*.py[cod]
-*.egg-info/
+# are build output rather than source.
+*.bag
+*.blob
 build/
+*.egg-info/
+.env
 install/
 log/
-.venv/
-*.blob
-*.pt
-*.onnx
-*.mp4
-*.bag
-.env
-secrets.json
-# Vosk speech models: 68 MB of binary, fetched by tools/get_vosk_model.sh
-models/vosk-*/
-# NN archives are generated from the blob by tools/make_nn_archive.py, so they
-# are build output rather than source.
 models/*.tar.xz
+models/vosk-*/
+*.mp4
+# NN archives are generated from the blob by tools/make_nn_archive.py, so they
+*.onnx
+*.pt
+*.pyc
+__pycache__/
+*.py[cod]
+secrets.json
+.venv/
+# Vosk speech models: 68 MB of binary, fetched by tools/get_vosk_model.sh
