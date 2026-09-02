@@ -155,7 +155,7 @@ class BehaviorNode(Node):
         # geometry and surface dependent (steering throw, wheelbase, grip), so it
         # is a measured number rather than a computed one: drive it, watch where
         # it ends up, adjust.
-        self.declare_parameter('turn_around_seconds', 3.0)
+        self.declare_parameter('turn_around_seconds', 4.0)   # 180 deg at 45 deg/s, measured
         # Per-leg time for the three-point turn. All three legs are geometry and
         # grip dependent, so these are measured, not computed: drive it, see
         # where the nose ends up, adjust.
@@ -176,8 +176,23 @@ class BehaviorNode(Node):
         #           divide. Changes with surface, slope and pack charge.
         #   degrees: command `turn_around`, see how far the nose actually swung,
         #           divide by the time.
-        self.declare_parameter('metres_per_second', 0.9)
-        self.declare_parameter('degrees_per_second', 60.0)
+        # MEASURED 2026-09-02, three timed runs against a tape measure:
+        #   1.0s -> 31in,  1.4s -> 40in,  1.8s -> 51in
+        # Fitting distance = rate*time + coast gives 0.635 m/s and 0.144 m, with
+        # a worst residual of 0.7in across a 51in run.
+        #
+        # The coast term is not a refinement, it is most of the error at the
+        # distances actually used indoors. Dividing distance by a rate alone,
+        # "go forward 0.3 m" would travel 0.45 m: fifty per cent over, and
+        # visibly wrong on camera.
+        self.declare_parameter('metres_per_second', 0.635)
+        self.declare_parameter('coast_metres', 0.144)
+        # MEASURED 2026-09-02: 2.0s -> 90 deg, 4.0s -> 180 deg. Dead linear,
+        # and NO coast term, unlike distance. The reason is that when a command
+        # ends the arbiter publishes a zero Twist, so steering centres and the
+        # car coasts STRAIGHT rather than continuing round. The coast still
+        # happens, it just stops contributing rotation.
+        self.declare_parameter('degrees_per_second', 45.0)
         self.declare_parameter('max_metres', 8.0)
 
         # The on-robot microphone listens continuously and the vocabulary is made
@@ -221,6 +236,7 @@ class BehaviorNode(Node):
         self.tp_rev_s = float(g('three_point_reverse_s').value)
         self.tp_settle_s = float(g('three_point_settle_s').value)
         self.mps = max(0.05, float(g('metres_per_second').value))
+        self.coast_m = max(0.0, float(g('coast_metres').value))
         self.dps = max(1.0, float(g('degrees_per_second').value))
         self.max_m = float(g('max_metres').value)
         self.pan_enabled = bool(g('pan_enabled').value)
@@ -642,9 +658,16 @@ class BehaviorNode(Node):
             return float(seconds)
         if metres is not None:
             m = max(0.0, min(self.max_m, abs(float(metres))))
-            secs = m / self.mps
+            # Subtract the coast: the car keeps rolling after the command ends,
+            # by a distance that does not depend on how long it ran.
+            secs = max(0.0, (m - self.coast_m) / self.mps)
+            if m <= self.coast_m:
+                self.get_logger().warn(
+                    f'{m:g} m is within the {self.coast_m:g} m the car coasts '
+                    f'after stopping, so it cannot travel less than that')
             self.get_logger().info(
-                f'{m:g} m at {self.mps:g} m/s -> {secs:.1f}s')
+                f'{m:g} m = {self.coast_m:g} m coast + {m - self.coast_m:.2f} m '
+                f'at {self.mps:g} m/s -> {secs:.2f}s')
             return secs
         if degrees is not None:
             d = max(0.0, min(360.0, abs(float(degrees))))
@@ -740,7 +763,12 @@ class BehaviorNode(Node):
             else:
                 seconds = self.default_s
         cap = self.color_react_s if action == 'color_react' else self.max_s
-        seconds = max(0.5, min(cap, seconds))
+        # A duration COMPUTED from a distance or an angle gets a much lower
+        # floor than a bare command does. The 0.5 s floor exists to stop a
+        # spoken primitive being a meaningless twitch; applying it to
+        # "go forward 20 cm" would silently turn it into 46 cm instead.
+        floor = 0.15 if (metres is not None or degrees is not None) else 0.5
+        seconds = max(floor, min(cap, seconds))
 
         if action not in ('wait', 'forward', 'reverse', 'circle_right',
                           'circle_left', 'turn_around', 'rev_left', 'rev_right',

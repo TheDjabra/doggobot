@@ -80,3 +80,15 @@ behavior_node:
     pan_escalate: false
     pan_escalate_deg: 55.0
     pan_escalate_s: 2.5
+
+    # --- MEASURED 2026-09-02, tape measure and timed turns ---
+    # Forward: 1.0s->31in, 1.4s->40in, 1.8s->51in. Fitting distance = rate*time
+    # + coast gives 0.635 m/s and 0.144 m, worst residual 0.7in over a 51in run.
+    # The coast term is most of the error at indoor distances: dividing by a
+    # rate alone, "forward 0.3 m" would travel 0.45 m.
+    metres_per_second: 0.635
+    coast_metres: 0.144
+    # Turns: 2.0s->90deg, 4.0s->180deg. Linear, and NO coast, because the
+    # arbiter zeroes steering at the end so the car coasts straight.
+    degrees_per_second: 45.0
+    turn_around_seconds: 4.0
