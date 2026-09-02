@@ -151,7 +151,7 @@ does not run off the main pack. A separate 2S pack feeds the adapter, sized for 
 which is amps rather than milliamps on a 19 kg servo.
 
 (This section said 3S until 2026-08-30. That is the same wrong number that was set in VESC
-Tool and destroyed a pack by cutting off at 2.25 V per cell. Every team on this course got
+Tool, which put the low-voltage cutoff at 2.25 V per cell. Every team on this course got
 4S. Corrected here so the document cannot repeat the mistake.)
 
 ## LiDAR: role and mounting (decided 2026-08-26)

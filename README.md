@@ -90,7 +90,7 @@ with the MAE/ECE 148 kit and are listed for completeness.
 | 1/10 scale RC chassis | *course.* Ackermann steering, brushless motor |
 | VESC | *course.* Enumerates at `/dev/ttyACM0`, driven by the class `vesc_twist_node` |
 | Raspberry Pi 5, 16 GB | RPi OS Bookworm. Everything runs in a Docker container |
-| **4S** LiPo | Main pack. **Set the VESC cutoff for 4S**: a 3S profile on a 4S pack cuts off at 2.25 V per cell and destroys the battery. This cost us one |
+| **4S** LiPo | Main pack. **Set the VESC cutoff for 4S.** A 3S profile on a 4S pack puts the low-voltage cutoff at 2.25 V per cell, far below where a LiPo should ever be taken. Ours was wrong until 2026-08-29 |
 | DC-DC converter | Steps the 4S pack down for the Pi, camera and LiDAR |
 
 ### Sensing

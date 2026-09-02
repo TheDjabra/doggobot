@@ -1123,7 +1123,7 @@ does not create the container: that is coursework.
 ### Also corrected
 
 `docs/hardware.md` said the main pack is 3S. It is 4S. That is the same wrong number that was once
-set in VESC Tool and destroyed a pack by cutting off at 2.25 V per cell.
+set in VESC Tool, which put the low-voltage cutoff at 2.25 V per cell.
 
 ### Still guesses
 
