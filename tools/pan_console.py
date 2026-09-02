@@ -25,6 +25,7 @@ class Pan:
         self.deg = None
         self.target = None
         self.moving = 0
+        self.load = 0
         self.volts = 0.0
         self.temp = 0
         self.errs = 0
@@ -57,6 +58,7 @@ class Pan:
                             self.deg = float(p[1]) if p[1] != 'nan' else None
                             self.target = float(p[2])
                             self.moving = int(p[3])
+                            self.load = int(p[4])
                             self.volts = float(p[5])
                             self.temp = int(p[6])
                             self.errs = int(p[7])
@@ -140,12 +142,59 @@ def watch(pan, seconds):
     return 0
 
 
+def limits(pan, ceiling=90.0, abort_load=500, warn_load=300):
+    """Walk outward to the travel limits, stopping at the first sign of trouble.
+
+    Graduated on purpose. Commanding the extreme first tells you nothing useful
+    if it binds: you learn that something went wrong, at the worst place, with
+    the most energy behind it. Walking out means the run stops one step past the
+    last angle that was fine, which is also the diagnosis.
+    """
+    pan.pump(0.8)
+    if pan.deg is None:
+        print('no position reported; servo unpowered or bus silent.')
+        return 1
+    print(f'start {pan.deg:+.2f} deg, {pan.volts:.1f} V, {pan.temp} C')
+    print('engaging torque (holds current angle, does not move)')
+    pan.send('e 1')
+    pan.pump(0.8)
+
+    plan = [0, 10, 30, 60, 90, 0, -10, -30, -60, -90, 0]
+    plan = [a for a in plan if abs(a) <= ceiling]
+    print(f'\n  {"cmd":>6} {"reached":>8} {"err":>6} {"load":>6} {"V":>5} {"C":>4}')
+    print(f'  {"-"*6} {"-"*8} {"-"*6} {"-"*6} {"-"*5} {"-"*4}')
+    worst = 0.0
+    for angle in plan:
+        reached, err, secs = pan.goto(angle, tol=2.0, timeout=4.0)
+        pan.pump(0.25)
+        load = abs(pan.load) if hasattr(pan, 'load') else 0
+        flag = ''
+        if not reached:
+            flag = '  DID NOT ARRIVE'
+        elif load >= warn_load:
+            flag = '  high load'
+        worst = max(worst, abs(err) if reached else 99)
+        got = f'{pan.deg:+.1f}' if pan.deg is not None else 'nan'
+        print(f'  {angle:+6.0f} {got:>8} {err:+6.1f} {load:6d} '
+              f'{pan.volts:5.1f} {pan.temp:4d}{flag}')
+        if not reached or load >= abort_load:
+            print(f'\nABORTED at {angle:+.0f} deg. Returning to zero.')
+            pan.goto(0.0, tol=3.0, timeout=4.0)
+            return 1
+    print(f'\nPASS: reached every angle out to +/-{ceiling:.0f}, '
+          f'worst error {worst:.1f} deg, {pan.errs} bus errors.')
+    return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', default='/dev/ttyUSB0')
     ap.add_argument('--selftest', action='store_true')
     ap.add_argument('--watch', type=float, metavar='SECONDS',
                     help='hold the axis limp and stream the angle, to find zero')
+    ap.add_argument('--limits', nargs='?', type=float, const=90.0,
+                    metavar='DEG', help='walk out to the travel limits, '
+                                        'stopping at the first sign of binding')
     ap.add_argument('cmds', nargs='*')
     a = ap.parse_args()
 
@@ -157,6 +206,9 @@ def main():
 
     if a.watch:
         return watch(pan, a.watch)
+
+    if a.limits is not None:
+        return limits(pan, min(a.limits, 90.0))
 
     if a.selftest:
         return selftest(pan)

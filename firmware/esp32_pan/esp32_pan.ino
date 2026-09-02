@@ -20,7 +20,8 @@
 //     p <deg>     target angle, signed degrees, 0 = straight ahead
 //     v <deg/s>   slew speed limit
 //     e <0|1>     torque enable / disable (0 lets you move it by hand)
-//     o <deg>     where mechanical straight-ahead sits, in servo degrees
+//     o <deg>     fine trim, in degrees, on top of the servo's own zero
+//     z           STORE THE CURRENT POSITION AS ZERO, in the servo's EEPROM
 //     c           centre, same as `p 0`
 //     ?           force one status line immediately
 //     i           identity banner
@@ -29,6 +30,17 @@
 // the horn is clocked relative to the bracket, so commanding an angle at power
 // up would drive the axis to wherever the encoder happens to call centre and
 // take the camera cable with it. It powers up limp and waits to be told.
+//
+// ZEROING, and why it is done in the servo rather than in software. The horn
+// fits in 14.4 degree steps (25 teeth), so mechanical straight-ahead never
+// lands on the encoder's own centre. Carrying that difference as a software
+// offset does not work: the encoder covers exactly ONE turn, so a horn clocked
+// 128 degrees out leaves only about 52 degrees of travel on one side before the
+// count passes 4095 and WRAPS instead of clamping.
+//
+// `z` fixes it in the servo. CalibrationOfs writes the current position into
+// EEPROM as 2048, so forward IS zero from then on and it survives power cycles.
+// The full +/-90 then sits at counts 1024..3072: inside one turn, and symmetric.
 //
 //   esp32 -> host, streamed at STATUS_HZ
 //     s <deg> <target> <moving> <load> <volts> <temp> <errs> <torque>
@@ -57,7 +69,7 @@ const float CPD       = 4096.0f / 360.0f;   // counts per degree
 // static_assert makes an attempt to widen it a build failure rather than a
 // discovery made by watching the camera cable wind up.
 constexpr float ABS_LIMIT_DEG = 90.0f;
-constexpr float LIMIT_DEG     = 80.0f;      // working clamp, inside the ceiling
+constexpr float LIMIT_DEG     = 90.0f;      // working clamp, at the ceiling
 static_assert(LIMIT_DEG <= ABS_LIMIT_DEG,
               "pan working clamp exceeds the +/-90 degree travel ceiling");
 
@@ -87,13 +99,29 @@ String   line;
 
 // ---- helpers ---------------------------------------------------------------
 
+// The encoder covers ONE turn, 0..4095 counts. A position outside that does not
+// clamp, it wraps, and on a free-spinning axis a wrap is how a camera cable gets
+// wound up. So the reachable travel depends on where mechanical straight-ahead
+// sits: with a horn clocked 128 degrees off encoder centre there is only about
+// 52 degrees left on the positive side, however wide LIMIT_DEG is set.
+constexpr int   COUNT_LO   = 0;
+constexpr int   COUNT_HI   = 4095;
+constexpr float EDGE_DEG   = 2.0f;      // never sit right on the last count
+
+float reachMax() { return (COUNT_HI - CENTRE) / CPD - offsetDeg - EDGE_DEG; }
+float reachMin() { return (COUNT_LO - CENTRE) / CPD - offsetDeg + EDGE_DEG; }
+
 float clampDeg(float d) {
-  // Clamp to whichever is tighter. Belt and braces: if LIMIT_DEG is ever edited
-  // upward without the static_assert being noticed, the ceiling still holds.
-  const float lim = LIMIT_DEG < ABS_LIMIT_DEG ? LIMIT_DEG : ABS_LIMIT_DEG;
-  if (d >  lim) return  lim;
-  if (d < -lim) return -lim;
   if (!(d == d)) return 0.0f;           // NaN from a garbled line
+  // Whichever is tighter: the configured clamp, the hard ceiling, or what the
+  // encoder can physically represent at this offset.
+  const float lim = LIMIT_DEG < ABS_LIMIT_DEG ? LIMIT_DEG : ABS_LIMIT_DEG;
+  float hi =  lim, lo = -lim;
+  if (reachMax() < hi) hi = reachMax();
+  if (reachMin() > lo) lo = reachMin();
+  if (hi < lo) { hi = 0.0f; lo = 0.0f; }   // pathological offset: refuse to move
+  if (d > hi) return hi;
+  if (d < lo) return lo;
   return d;
 }
 
@@ -105,7 +133,13 @@ float countsToDeg(int c) {
 }
 
 void applyTarget() {
-  st.WritePosEx(PAN_ID, degToCounts(targetDeg), slewCounts, ACCEL);
+  // Final guard, in counts. Everything upstream works in degrees and should
+  // already be inside the clamp, but a position outside one turn WRAPS on this
+  // servo rather than clamping, so the last thing before the wire checks it.
+  int c = degToCounts(targetDeg);
+  if (c < 0)    c = 0;
+  if (c > 4095) c = 4095;
+  st.WritePosEx(PAN_ID, c, slewCounts, ACCEL);
 }
 
 void banner() {
@@ -113,7 +147,7 @@ void banner() {
   Serial.printf("# servo id %d, limit +/-%.0f deg, bus %lu baud\n",
                 PAN_ID, LIMIT_DEG, (unsigned long)BUS_BAUD);
   Serial.printf("# offset %.2f deg, torque %s\n", offsetDeg, torque ? "on" : "off");
-  Serial.println("# p <deg> | v <deg/s> | e <0|1> | o <deg> | c | ? | i");
+  Serial.println("# p <deg> | v <deg/s> | e <0|1> | o <deg> | z | c | ? | i");
 }
 
 void status() {
@@ -179,10 +213,36 @@ void handle(String s) {
       Serial.printf("# torque %s at %.2f deg\n", torque ? "on" : "off", targetDeg);
       break;
 
+    case 'z': {
+      // Writes EEPROM, so it is a deliberate act and never happens on boot.
+      // Torque comes off first: calibrating while the servo is holding a
+      // position means fighting its own loop as centre moves underneath it.
+      st.EnableTorque(PAN_ID, 0);
+      torque = false;
+      st.CalibrationOfs(PAN_ID);
+      offsetDeg = 0.0f;
+      targetDeg = 0.0f;
+      delay(60);
+      int pos = st.ReadPos(PAN_ID);
+      float lo = clampDeg(-1e6f), hi = clampDeg(1e6f);
+      Serial.printf("# ZEROED: here is now 0 deg (encoder %d, expect ~%d). "
+                    "Travel %.1f .. %+.1f deg. Still limp; send e 1.\n",
+                    pos, CENTRE, lo, hi);
+      break;
+    }
+
     case 'o': {
       float was = offsetDeg;
       offsetDeg = arg.toFloat();
+      float lo = clampDeg(-1e6f), hi = clampDeg(1e6f);
       Serial.printf("# offset %.2f -> %.2f deg\n", was, offsetDeg);
+      Serial.printf("# reachable %.1f .. %+.1f deg", lo, hi);
+      if (hi < LIMIT_DEG - 0.5f || lo > -LIMIT_DEG + 0.5f) {
+        Serial.printf("  (LESS THAN the %.0f deg asked for: the horn is "
+                      "clocked %.0f deg off encoder centre, so the encoder "
+                      "runs out first)", LIMIT_DEG, offsetDeg);
+      }
+      Serial.println();
       break;
     }
 
