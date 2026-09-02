@@ -1,0 +1,31 @@
+# Python dependencies, grouped by what you actually want to run.
+# ROS2 itself (rclpy, std_msgs, geometry_msgs, sensor_msgs) comes from the ROS
+# install, not from pip, and is declared in package.xml.
+#
+#   pip install -r requirements.txt              everything
+#   pip install fastapi uvicorn                  just the phone app
+
+# --- the phone app: voice_bridge_node and web/index.html ---
+# This is the whole list for the control surface. The app does not need the
+# camera, the speech model or the servo to run: bring it up on its own and the
+# sticks, buttons and telemetry all work against whatever nodes are present.
+fastapi
+uvicorn
+
+# --- perception: perception_node, color.py ---
+# depthai v3, NOT v2. The pipeline API changed shape between them and none of
+# this runs on v2.
+depthai>=3.0.0
+opencv-python
+numpy
+
+# --- speech: stt_node ---
+# The model itself is not a pip package: bash tools/get_vosk_model.sh
+vosk
+
+# --- camera pan axis: pan_node ---
+pyserial
+
+# --- bench tools only, not needed to run the vehicle ---
+# tools/vesc_probe.py, tools/vesc_smoothness.py
+pyvesc

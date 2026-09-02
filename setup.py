@@ -18,7 +18,22 @@ setup(
             glob('web/*.html') + glob('web/*.png') + glob('web/*.svg')
             + glob('web/*.webmanifest')),
     ],
-    install_requires=['setuptools'],
+    # Declared so a clone fails with a clear message rather than an ImportError
+    # per node. See requirements.txt for what each group is for; the phone app
+    # alone needs only fastapi and uvicorn.
+    install_requires=[
+        'setuptools',
+        'fastapi',        # voice_bridge_node
+        'uvicorn',        # voice_bridge_node
+        'pyserial',       # pan_node
+    ],
+    extras_require={
+        # Heavy, and only needed for the nodes that use them. Kept out of the
+        # base install so the app can be run without pulling in depthai.
+        'perception': ['depthai>=3.0.0', 'opencv-python', 'numpy'],
+        'speech': ['vosk'],
+        'bench': ['pyvesc'],
+    },
     zip_safe=True,
     maintainer='Hektoras Djabra (Hrag Djabraian)',
     maintainer_email='hektoras@djabra.org',

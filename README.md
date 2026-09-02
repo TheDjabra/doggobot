@@ -78,6 +78,79 @@ Full detail in [docs/architecture.md](docs/architecture.md).
 
 ---
 
+## Reproducing this
+
+The goal is that you can clone this and rebuild the whole vehicle, not just read about it.
+Everything needed is here or is fetched by a script; the only things you must supply are your
+own hardware identifiers, listed at the bottom of this section.
+
+### Run the phone app on its own, no robot required
+
+The control surface has no build step and does not need the camera, the speech model or the
+servo. On any machine with ROS2 Jazzy:
+
+```bash
+pip install fastapi uvicorn
+colcon build --symlink-install --packages-select doggobot
+source install/setup.bash
+ros2 launch doggobot phone.launch.py
+```
+
+Open `http://<that machine>:8080`. You get the full interface: tabs, sticks, ARM and KILL,
+telemetry panes and the guard control. Nothing moves, because nothing is publishing, and the
+arbiter will report the sticks arriving. It is the fastest way to see how the thing works.
+
+Browser speech is the one part that will not work over plain HTTP, because the microphone and
+`SpeechRecognition` APIs do not exist outside a secure context. See
+[docs/app-and-comms.md](docs/app-and-comms.md).
+
+### The whole vehicle
+
+```bash
+pip install -r requirements.txt          # or: pip install -e '.[perception,speech]'
+bash tools/get_vosk_model.sh             # speech model, 68 MB, not in git
+# detector weights: see models/README.md, which explains what they are and how
+# to rebuild them from the OpenVINO IR
+sudo cp deploy/99-doggobot-serial.rules /etc/udev/rules.d/   # EDIT IT FIRST, see below
+sudo udevadm control --reload && sudo udevadm trigger
+colcon build --symlink-install --packages-select doggobot
+ros2 launch doggobot all.launch.py
+```
+
+`docs/runbook.md` is the procedure end to end, including the container, publishing the page
+over HTTPS, zeroing the pan axis and calibrating the drive.
+
+`tools/install_service.sh` installs the systemd unit that brings the stack up at power-on, so
+the vehicle boots to a working control page with no terminal involved.
+
+### Check it without any hardware at all
+
+Six suites run on a laptop with no ROS, no car and no camera, by stubbing the ROS client
+library and driving the real nodes:
+
+```bash
+python3 tools/sim_cascade.py        # follow cascade against a vehicle model
+python3 tools/test_search.py        # camera search sweep, on a fake clock
+python3 tools/test_safety_guard.py  # LiDAR guard hysteresis and override
+python3 tools/test_keywords.py      # command vocabulary and quantity parsing
+```
+
+### What you must change for your own setup
+
+| Where | What, and why it cannot be shared |
+|---|---|
+| `deploy/99-doggobot-serial.rules` | USB serial numbers of **your** ESP32, LiDAR and VESC. Read them with `udevadm info -n /dev/ttyACM0`. Ours are in there as worked examples |
+| `config/llm.yaml` | `host:` must point at your own Ollama machine. Optional: with it unreachable the offline keyword path still works |
+| `docs/runbook.md`, `tools/install_service.sh` | Our Tailscale hostname. Substitute yours, or serve the page over plain HTTP on a LAN and accept losing browser speech |
+| `config/follow.yaml` | `half_fov_deg` and `invert` depend on your camera crop and how the mount faces. `tools/measure_fov.py` measures the first in about 20 seconds |
+| `config/behavior.yaml` | `metres_per_second`, `coast_metres`, `degrees_per_second`. Ours were measured with a tape measure; `tools/calibrate_motion.py` walks you through doing the same |
+| `config/color_thresholds.json` | Lighting-dependent. The phone's TUNE tab has live sliders and a mask overlay |
+| `web/index.html` | Branding is ours. The layout and logic are the reusable part |
+
+Everything else should run as it stands.
+
+---
+
 ## Hardware
 
 Enough detail to order the parts, not just to recognise them. Items marked *course* came
