@@ -74,7 +74,21 @@ follow_node:
     # letterboxed input, so the degrees-per-unit-x has to be measured: put the
     # target at a known bearing, read x from /target_state, divide. 34.5 is the
     # OAK-D Lite RGB half-HFOV and is a placeholder until that is done.
-    half_fov_deg: 34.5
+    # MEASURED 2026-09-02, not taken from the camera spec. 25.2, two runs
+    # agreeing to 0.1 deg, worst residual 0.062 in x (about 1.5 deg).
+    #
+    # The spec-sheet 69 deg HFOV describes the LENS. It is not this number,
+    # because DetectionNetwork.build(camera, ...) requests its input with the
+    # default resize mode, which is CROP: the detector sees a 416x416 CENTRE
+    # CROP of the sensor, so x = +/-1 spans much less than the full frame. The
+    # measurement lands between the two crop geometries predicted beforehand
+    # (21.1 for 16:9, 27.3 for 4:3), which is the expected place for it.
+    #
+    # Method: with a stationary target, x = (bearing - pan)/half_fov, so
+    # dx/dpan = -1/half_fov. The pan axis is encoder-verified over +/-90, which
+    # makes it a ruler we already trust. No tape and no marked bearings.
+    # tools/measure_fov.py reproduces it in about 20 seconds.
+    half_fov_deg: 25.2
 
     kp_pan: 0.55        # fraction of the angular error to correct per frame.
                         # 1.0 would be deadbeat and will ring, because the servo
