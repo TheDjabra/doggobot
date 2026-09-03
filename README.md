@@ -321,11 +321,14 @@ OAK-D and the LiDAR, and the white bracket coupling it to the chassis deck.
 
 | Part | Size (mm) | Files |
 |---|---|---|
+| `Baseplate` | 342.5 &times; 165.1 &times; 6.3 | STEP + STL |
 | `Camera_Chassis_Mount` | 87 &times; 156 &times; 90 | STEP + STL |
 | `Camera_Angle_Mount` | 94.8 &times; 31.8 &times; 17 | STEP + STL |
 | `Camera_Angle_Bracket` | 87 &times; 30 &times; 21 | STEP + STL |
-| `Servo_To_Chassis_Mount` | 30 &times; 35 &times; 17 | STEP + STL |
+| `Front_Support` | 62.2 &times; 25.4 &times; 81.8 | STEP + STL |
+| `Hinge` | 42.2 &times; 51.4 &times; 76.2 | STEP + STL |
 | `Servo_Mount` | 87 &times; 3 &times; 80 | STEP + STL |
+| `Servo_To_Chassis_Mount` | 30 &times; 35 &times; 17 | STEP + STL |
 
 Dimensions are bounding boxes measured from the meshes, so they are the printer's envelope
 rather than nominal design figures.
