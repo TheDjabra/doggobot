@@ -190,7 +190,7 @@ def forward(node):
             print(f'\n  Dead time is NOT small. A rate alone will overshoot')
             print(f'  short distances and undershoot long ones. Use:\n')
             print(f'      metres_per_second: {v:.2f}')
-            print(f'  and tell Claude the dead time is {t0:.2f}s, so the')
+            print(f'  and record the dead time as {t0:.2f}s, so the')
             print(f'  duration can be computed as t0 + metres/rate.')
     print('=' * 68)
     return 0

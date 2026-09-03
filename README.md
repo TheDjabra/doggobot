@@ -48,9 +48,9 @@
 
 | Name | Department | Class |
 |---|---|---|
-| Cesar Montiel | Electrical and Computer Engineering | Junior |
-| Hektoras Djabra (Hrag Djabraian) | Mechanical Engineering | Senior |
-| Naveen Weedagama | Mechanical Engineering | Sophomore |
+| Cesar Montiel | Electrical and Computer Engineering (ECE) | Junior |
+| Hektoras Djabra (Hrag Djabraian) | Mechanical and Aerospace Engineering (MAE) | Senior |
+| Naveen Weedagama | Mechanical and Aerospace Engineering (MAE) | Sophomore |
 
 <p align="center">
   <img src="docs/img/team.jpg" alt="Team 4 with Doggobot" width="620">
@@ -312,9 +312,9 @@ vehicle and every message they exchange is in
 
 **Every part here was modelled by us.** Nothing in `cad/` is a downloaded or kit part.
 
-All files are in [`cad/`](cad/). **STEP and STL are both provided** where we have them: STL
-prints as-is, STEP is the one you can actually open and modify for a different servo or camera,
-which matters more for a repo whose point is that someone can rebuild this.
+All files are in [`cad/`](cad/). **STEP and STL are provided for every part**: STL prints
+as-is, STEP is the one you can open and modify for a different servo or camera, which matters
+more for a repo whose point is that someone can rebuild this.
 
 The printed assembly is visible in the photographs above: the purple camera tower carrying the
 OAK-D and the LiDAR, and the white bracket coupling it to the chassis deck.
@@ -326,14 +326,9 @@ OAK-D and the LiDAR, and the white bracket coupling it to the chassis deck.
 | `Camera_Angle_Bracket` | 87 &times; 30 &times; 21 | STEP + STL |
 | `Servo_To_Chassis_Mount` | 30 &times; 35 &times; 17 | STEP + STL |
 | `Servo_Mount` | 87 &times; 3 &times; 80 | STEP + STL |
-| `Front_Support` | 62.2 &times; 25.4 &times; 81.8 | STL only |
-| `Hinge_Body` | 42.2 &times; 51.4 &times; 76.2 | STL only |
 
 Dimensions are bounding boxes measured from the meshes, so they are the printer's envelope
 rather than nominal design figures.
-
-<!-- Front_Support and Hinge_Body are STL only. Exporting STEP for those two would complete
-     the set, since they were modelled here and the solid geometry exists. Not required. -->
 
 ---
 
