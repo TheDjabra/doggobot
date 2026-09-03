@@ -10,7 +10,6 @@
   <img src="docs/img/doggobot.jpg" alt="Doggobot: the finished vehicle" width="440">
 </p>
 
-<!-- TODO: add a team photo -->
 
 <p align="center">
   <a href="https://youtu.be/nzANNk37lwg">
@@ -52,6 +51,10 @@
 | Cesar Montiel | Electrical and Computer Engineering | Junior |
 | Hektoras Djabra (Hrag Djabraian) | Mechanical Engineering | Senior |
 | Naveen Weedagama | Mechanical Engineering | Sophomore |
+
+<p align="center">
+  <img src="docs/img/team.jpg" alt="Team 4 with Doggobot" width="620">
+</p>
 
 ---
 
