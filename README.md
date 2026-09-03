@@ -2,9 +2,16 @@
 
 **Voice-Controlled Autonomous Navigation** &middot; Summer Session II, 2026
 
-<!-- TODO: add the UCSD/JSOE logo, a photo of the finished car, and a team photo here -->
+<!-- TODO: add the UCSD/JSOE logo and a team photo here -->
 
-> **Demo video:** _TODO: link_
+<p align="center">
+  <a href="https://youtu.be/nzANNk37lwg">
+    <img src="https://img.youtube.com/vi/nzANNk37lwg/maxresdefault.jpg"
+         alt="Doggobot demo: voice commands, person following and camera tracking" width="720">
+  </a>
+</p>
+
+<p align="center"><a href="https://youtu.be/nzANNk37lwg"><b>&#9654;&nbsp; Watch the demo</b></a></p>
 
 ---
 
@@ -12,6 +19,7 @@
 
 - [Team Members](#team-members)
 - [Abstract](#abstract)
+- [Demo](#demo)
 - [Final Project](#final-project)
   - [What we promised](#what-we-promised)
   - [Beyond the proposal](#beyond-the-proposal)
@@ -51,6 +59,17 @@ in total, on a Raspberry Pi 5 with an OAK-D Lite and an LD06 LiDAR. Perception r
 camera's own accelerator; speech runs offline on the car or in the phone's browser; the camera
 sits on its own servo and tracks independently of the wheels; and nothing that can move the car
 does so until it is deliberately armed.
+
+---
+
+## Demo
+
+Three clips: spoken commands carried out, person following with the camera tracking
+independently of the wheels, and the camera searching to reacquire a target it has lost.
+
+[![Doggobot demo](https://img.youtube.com/vi/nzANNk37lwg/mqdefault.jpg)](https://youtu.be/nzANNk37lwg)
+
+**https://youtu.be/nzANNk37lwg**
 
 ---
 
