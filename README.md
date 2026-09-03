@@ -6,7 +6,11 @@
 
 **Voice-Controlled Autonomous Navigation** &middot; Summer Session II, 2026
 
-<!-- TODO: add a team photo, and a photo of the finished car -->
+<p align="center">
+  <img src="docs/img/doggobot.jpg" alt="Doggobot: the finished vehicle" width="440">
+</p>
+
+<!-- TODO: add a team photo -->
 
 <p align="center">
   <a href="https://youtu.be/nzANNk37lwg">
@@ -214,8 +218,26 @@ switch has context no proximity sensor has, and a guard that blocks the escape r
 nothing. Every source has a staleness timeout, so a crashed node or a phone that leaves wifi
 releases the car rather than latching its last command.
 
-Full detail in [docs/architecture.md](docs/architecture.md). How the app is built and every
-message it exchanges with the vehicle is in [docs/app-and-comms.md](docs/app-and-comms.md).
+Full detail in [docs/architecture.md](docs/architecture.md). How the control interface is built
+and every message it exchanges with the vehicle is in
+[docs/app-and-comms.md](docs/app-and-comms.md).
+
+### The control interface
+
+Not a companion app. It is the **operator's console**, and it is the only way a human takes the
+vehicle back from autonomy: the arm gate, the kill switch, the LiDAR guard override and the
+manual sticks all live here, and the arbiter ranks them above anything the robot decides for
+itself.
+
+<p align="center">
+  <img src="docs/img/app-drive.png" alt="Drive tab: manual sticks, kill switch, camera control" width="215">
+  <img src="docs/img/app-auto.png" alt="Auto tab: target telemetry and follow" width="215">
+  <img src="docs/img/app-voice.png" alt="Voice tab: push to talk" width="215">
+  <img src="docs/img/app-tune.png" alt="Tune tab: live colour thresholds" width="215">
+</p>
+
+<p align="center"><i>Drive, Auto, Voice and Tune. One HTML file, no build step, served by the
+robot itself.</i></p>
 
 ### Software
 

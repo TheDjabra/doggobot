@@ -1,13 +1,35 @@
-# The app, and how it talks to the robot
+# The control interface, and how it talks to the robot
 
 Everything an operator touches is one web page. This is how it is built, how it reaches the
 vehicle, and what every message on the wire means.
 
-## Why a web app at all
+## What it is
 
-A phone is the only controller that is always to hand, needs no pairing, and already has a
-microphone, a screen and a browser. Making the control surface a web page means there is
-nothing to install on it, nothing to keep in step with the robot, and no second codebase.
+**The operator's console for a moving vehicle**, not a companion app. It is the only way a human
+takes the car back once autonomy has it, and it owns every control that exists for that purpose:
+
+| | |
+|---|---|
+| **ARM** | Nothing on the vehicle can move until this is pressed. The gate, not a mode |
+| **KILL** | Ranked above everything else in the arbiter, including the safety guard |
+| **Sticks** | Manual override, ranked above autonomy, so grabbing one takes the car off the loop instantly without stopping a single node |
+| **Lidar Guard** | Turns the proximity guard off for bench work, loudly, and puts it back on its own |
+| **Telemetry** | What the robot currently believes: target, distance, confidence, running primitive, camera angle, guard state, link latency |
+
+Being a web page is a consequence of that, not the point. It means no install, nothing to keep
+in step with the robot, one codebase, and a control surface that works from any device on the
+network at the moment something needs stopping.
+
+<p align="center">
+  <img src="img/app-drive.png" alt="Drive tab" width="215">
+  <img src="img/app-auto.png" alt="Auto tab" width="215">
+  <img src="img/app-voice.png" alt="Voice tab" width="215">
+  <img src="img/app-tune.png" alt="Tune tab" width="215">
+</p>
+
+**Tab as mode.** Switching tabs is not navigation, it changes what the vehicle will accept. Open
+Drive and autonomy is suppressed, so the car will not follow anyone or run a primitive while you
+are holding the sticks, and the video rate goes up because nothing else needs the frames.
 
 ## How it is built: it is not
 
