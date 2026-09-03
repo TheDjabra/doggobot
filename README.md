@@ -45,9 +45,9 @@
 
 | Name | Department | Class |
 |---|---|---|
-| Cesar Montiel | Electrical and Computer Engineering | _TODO_ |
-| Hektoras Djabra (Hrag Djabraian) | Mechanical Engineering | _TODO_ |
-| Naveen Weedagama | Mechanical Engineering | _TODO_ |
+| Cesar Montiel | Electrical and Computer Engineering | Junior |
+| Hektoras Djabra (Hrag Djabraian) | Mechanical Engineering | Senior |
+| Naveen Weedagama | Mechanical Engineering | Sophomore |
 
 ---
 
@@ -297,20 +297,17 @@ which matters more for a repo whose point is that someone can rebuild this.
 | `Camera_Angle_Mount` | 94.8 &times; 31.8 &times; 17 | STEP + STL |
 | `Camera_Angle_Bracket` | 87 &times; 30 &times; 21 | STEP + STL |
 | `Servo_To_Chassis_Mount` | 30 &times; 35 &times; 17 | STEP + STL |
-| `Stepper_Motor_Mount` | 87 &times; 3 &times; 80 | STEP + STL |
+| `Servo_Mount` | 87 &times; 3 &times; 80 | STEP + STL |
 | `Front_Support` | 62.2 &times; 25.4 &times; 81.8 | STL only |
 | `Hinge_Body` | 42.2 &times; 51.4 &times; 76.2 | STL only |
 
 Dimensions are bounding boxes measured from the meshes, so they are the printer's envelope
 rather than nominal design figures.
 
-<!-- TODO, two things to confirm before submission:
-     1. Stepper_Motor_Mount is named for a stepper, but this vehicle has no stepper. Rename it,
-        or say what it actually carries.
-     2. Say which of these were modelled by the team and which came from the class kit or an
-        open-source source. The other 148 repos split their CAD section that way and it is the
-        honest thing to state. Front_Support and Hinge_Body are STL-only, which usually means
-        they were downloaded rather than designed. -->
+<!-- TODO before submission: say which of these were modelled by the team and which came from
+     the class kit or an open-source source. The other 148 repos split their CAD section that
+     way and it is the honest thing to state. Front_Support and Hinge_Body are STL-only, which
+     usually means they were downloaded rather than designed. -->
 
 ---
 
@@ -437,7 +434,7 @@ teaching staff. Built on the class `ucsd_robocar_hub2` framework.
 
 - Cesar Montiel &mdash; montielcesar739@gmail.com
 - Hektoras Djabra (Hrag Djabraian) &mdash; hektoras@djabra.org
-- Naveen Weedagama &mdash; _TODO_
+- Naveen Weedagama &mdash; nweedagama@gmail.com
 
 ---
 
