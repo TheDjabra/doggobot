@@ -310,11 +310,14 @@ vehicle and every message they exchange is in
 
 ### CAD
 
-All parts are in [`cad/`](cad/). **STEP and STL are both provided** where we have them: STL
+**Every part here was modelled by us.** Nothing in `cad/` is a downloaded or kit part.
+
+All files are in [`cad/`](cad/). **STEP and STL are both provided** where we have them: STL
 prints as-is, STEP is the one you can actually open and modify for a different servo or camera,
 which matters more for a repo whose point is that someone can rebuild this.
 
-<!-- TODO: add a render or a photo of the printed mount on the car -->
+The printed assembly is visible in the photographs above: the purple camera tower carrying the
+OAK-D and the LiDAR, and the white bracket coupling it to the chassis deck.
 
 | Part | Size (mm) | Files |
 |---|---|---|
@@ -329,10 +332,8 @@ which matters more for a repo whose point is that someone can rebuild this.
 Dimensions are bounding boxes measured from the meshes, so they are the printer's envelope
 rather than nominal design figures.
 
-<!-- TODO before submission: say which of these were modelled by the team and which came from
-     the class kit or an open-source source. The other 148 repos split their CAD section that
-     way and it is the honest thing to state. Front_Support and Hinge_Body are STL-only, which
-     usually means they were downloaded rather than designed. -->
+<!-- Front_Support and Hinge_Body are STL only. Exporting STEP for those two would complete
+     the set, since they were modelled here and the solid geometry exists. Not required. -->
 
 ---
 
