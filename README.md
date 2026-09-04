@@ -2,7 +2,7 @@
   <img src="docs/img/ucsd-jsoe-logo.png" alt="UC San Diego Jacobs School of Engineering" width="420">
 </p>
 
-# UCSD ECE/MAE 148 Team 4 &mdash; Doggobot
+# UCSD ECE/MAE 148 Team 4: Doggobot
 
 **Voice-Controlled Autonomous Navigation** &middot; Summer Session II, 2026
 
@@ -464,9 +464,9 @@ teaching staff. Built on the class `ucsd_robocar_hub2` framework.
 
 ## Contact
 
-- Cesar Montiel &mdash; montielcesar739@gmail.com
-- Hektoras Djabra (Hrag Djabraian) &mdash; hektoras@djabra.org
-- Naveen Weedagama &mdash; nweedagama@gmail.com
+- Cesar Montiel - montielcesar739@gmail.com
+- Hektoras Djabra (Hrag Djabraian) - hektoras@djabra.org
+- Naveen Weedagama - nweedagama@gmail.com
 
 ---
 
