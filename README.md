@@ -79,10 +79,20 @@ does so until it is deliberately armed.
 
 ## Demo
 
-| | |
-|---|---|
-| [![Demo one](https://img.youtube.com/vi/nzANNk37lwg/mqdefault.jpg)](https://youtu.be/nzANNk37lwg) | [![Demo two](https://img.youtube.com/vi/pho-uP_aqn8/mqdefault.jpg)](https://youtu.be/pho-uP_aqn8) |
-| **[Demo one](https://youtu.be/nzANNk37lwg)** &mdash; spoken commands carried out, person following with the camera tracking independently of the wheels, and the camera sweeping to reacquire a target it has lost. | **[Demo two](https://youtu.be/pho-uP_aqn8)** |
+<table>
+<tr>
+<td width="50%"><a href="https://youtu.be/nzANNk37lwg"><img src="https://img.youtube.com/vi/nzANNk37lwg/hqdefault.jpg" width="100%" alt="Demo one"></a></td>
+<td width="50%"><a href="https://youtu.be/pho-uP_aqn8"><img src="https://img.youtube.com/vi/pho-uP_aqn8/hqdefault.jpg" width="100%" alt="Demo two"></a></td>
+</tr>
+<tr>
+<td valign="top"><b><a href="https://youtu.be/nzANNk37lwg">Demo one</a></b><br>
+Spoken commands carried out, person following with the camera tracking independently of the
+wheels, and the camera sweeping to reacquire a target it has lost.</td>
+<td valign="top"><b><a href="https://youtu.be/pho-uP_aqn8">Demo two</a></b><br>
+The drive primitives run end to end, and manual remote driving from the phone with the live
+video feed.</td>
+</tr>
+</table>
 
 ---
 
