@@ -22,6 +22,8 @@
   <a href="https://youtu.be/nzANNk37lwg"><b>&#9654;&nbsp; Demo one</b></a>
   &nbsp;&middot;&nbsp;
   <a href="https://youtu.be/pho-uP_aqn8"><b>&#9654;&nbsp; Demo two</b></a>
+  &nbsp;&middot;&nbsp;
+  <a href="docs/MAE148-Team4-Final-Presentation.pdf"><b>Final presentation (PDF)</b></a>
 </p>
 
 ---
@@ -93,6 +95,8 @@ The drive primitives run end to end, and manual remote driving from the phone wi
 video feed.</td>
 </tr>
 </table>
+
+The **[final presentation](docs/MAE148-Team4-Final-Presentation.pdf)** is in this repository.
 
 ---
 
