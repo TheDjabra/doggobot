@@ -10,14 +10,6 @@
   <img src="docs/img/doggobot.jpg" alt="Doggobot: the finished vehicle" width="440">
 </p>
 
-
-<p align="center">
-  <a href="https://youtu.be/nzANNk37lwg">
-    <img src="https://img.youtube.com/vi/nzANNk37lwg/maxresdefault.jpg"
-         alt="Doggobot demo: voice commands, person following and camera tracking" width="720">
-  </a>
-</p>
-
 <p align="center">
   <a href="https://youtu.be/nzANNk37lwg"><b>&#9654;&nbsp; Demo one</b></a>
   &nbsp;&middot;&nbsp;
