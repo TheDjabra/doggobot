@@ -18,7 +18,11 @@
   </a>
 </p>
 
-<p align="center"><a href="https://youtu.be/nzANNk37lwg"><b>&#9654;&nbsp; Watch the demo</b></a></p>
+<p align="center">
+  <a href="https://youtu.be/nzANNk37lwg"><b>&#9654;&nbsp; Demo one</b></a>
+  &nbsp;&middot;&nbsp;
+  <a href="https://youtu.be/pho-uP_aqn8"><b>&#9654;&nbsp; Demo two</b></a>
+</p>
 
 ---
 
@@ -75,12 +79,10 @@ does so until it is deliberately armed.
 
 ## Demo
 
-Three clips: spoken commands carried out, person following with the camera tracking
-independently of the wheels, and the camera searching to reacquire a target it has lost.
-
-[![Doggobot demo](https://img.youtube.com/vi/nzANNk37lwg/mqdefault.jpg)](https://youtu.be/nzANNk37lwg)
-
-**https://youtu.be/nzANNk37lwg**
+| | |
+|---|---|
+| [![Demo one](https://img.youtube.com/vi/nzANNk37lwg/mqdefault.jpg)](https://youtu.be/nzANNk37lwg) | [![Demo two](https://img.youtube.com/vi/pho-uP_aqn8/mqdefault.jpg)](https://youtu.be/pho-uP_aqn8) |
+| **[Demo one](https://youtu.be/nzANNk37lwg)** &mdash; spoken commands carried out, person following with the camera tracking independently of the wheels, and the camera sweeping to reacquire a target it has lost. | **[Demo two](https://youtu.be/pho-uP_aqn8)** |
 
 ---
 
